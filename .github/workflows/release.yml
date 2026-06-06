@@ -1,12 +1,15 @@
 name: Release
 
-# Cuts a release when a PR is merged into main — no push triggers, honoring the
-# "CI runs on pull requests only" policy. semantic-release reads the merged
-# commits, determines the next semver from Conventional Commits, then tags,
-# generates the CHANGELOG, bumps package.json, and publishes a GitHub Release.
+# Cuts a release on every push to main (a squash-merge produces exactly one such
+# push). A push event is required because semantic-release (via env-ci) treats
+# `pull_request`-triggered runs as PR builds and refuses to publish them. This is
+# a deliberate exception to the "CI runs on pull requests only" policy, which
+# governs the test/CI workflow — the release workflow needs the post-merge commit
+# on main. semantic-release reads the merged commits, determines the next semver
+# from Conventional Commits, then tags, generates the CHANGELOG, bumps
+# package.json, and publishes a GitHub Release.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
 # semantic-release needs to push the version/CHANGELOG commit + tag and create
@@ -23,16 +26,13 @@ concurrency:
 jobs:
   release:
     name: semantic-release
-    # Only when the PR was actually merged (not just closed).
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main (full history for version analysis)
         uses: actions/checkout@v4
         with:
-          # Check out the post-merge main branch (not the detached PR merge ref)
-          # so semantic-release sees a configured release branch.
-          ref: main
+          # Full history + tags so semantic-release can analyze commits since the
+          # last release and compute the next version.
           fetch-depth: 0
           persist-credentials: true
 
