@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/sapieonic/CharmShot/compare/v1.0.0...v1.1.0) (2026-06-06)
+
+### Features
+
+* add OpenAI Images API provider (gpt-image-1) ([#8](https://github.com/sapieonic/CharmShot/issues/8)) ([ac15096](https://github.com/sapieonic/CharmShot/commit/ac150966d8dafac65d513c08f10ba94282b96a2b))
+
 ## 1.0.0 (2026-06-06)
 
 ### Features
