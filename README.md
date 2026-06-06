@@ -108,7 +108,8 @@ Key properties:
 │   └── server/            # Fastify app + entrypoint
 ├── tests/                 # vitest: tests/unit/** and tests/integration/**
 ├── Dockerfile             # multi-stage production image
-├── docker-compose.yml     # local stack (server + mongo)
+├── docker-compose.yml     # production-like local stack (built image + mongo)
+├── dev-docker.yaml        # dev stack: hot reload (tsx watch) + mongo
 ├── .env.example
 └── README.md
 ```
@@ -312,7 +313,43 @@ RevenueCat drives plan changes via `POST /v1/webhooks/revenuecat`, which:
 
 Requirements: Node.js 22.x and a MongoDB you can reach.
 
-### Option A — Docker Compose (server + MongoDB)
+The repo ships two Compose files for different goals:
+
+| File | Goal | Source | MongoDB |
+|------|------|--------|---------|
+| `dev-docker.yaml` | **Development** — hot reload, `./src` mounted | `tsx watch` (no build step) | bundled `mongo:7` |
+| `docker-compose.yml` | **Production-like** — runs the built image | multi-stage `Dockerfile` | bundled `mongo:7` |
+
+### Option A — Dev stack with hot reload (`dev-docker.yaml`)
+
+The recommended day-to-day setup: runs the server with `tsx watch` and a
+bundled MongoDB. Your `./src` is mounted into the container, so editing a file
+restarts the server automatically — no rebuild needed.
+
+S3 is a **real (dev) bucket**, so provide AWS credentials and bucket names via
+your shell or a `.env` file next to the compose file. You can create the dev
+buckets with the Serverless template in this repo (`npx serverless deploy
+--stage dev`), then set `UPLOADS_BUCKET` / `RESULTS_BUCKET` to its outputs.
+
+```bash
+# Provide S3 access (shell exports shown; a .env beside the file also works)
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
+export UPLOADS_BUCKET=charmshot-uploads-dev RESULTS_BUCKET=charmshot-results-dev
+
+docker compose -f dev-docker.yaml up --build
+curl localhost:8080/health    # {"status":"ok"}
+```
+
+Edit files under `./src` and the server reloads. Stop with `Ctrl+C`;
+`docker compose -f dev-docker.yaml down -v` also removes the Mongo data volume.
+Auth/provider/billing values default to dev placeholders (see the file header)
+and can be overridden via your shell or `.env`.
+
+### Option B — Production-like Compose (`docker-compose.yml`)
+
+Builds and runs the production image from the `Dockerfile` (no hot reload),
+plus a bundled MongoDB — useful for verifying the container behaves as it will
+in production.
 
 ```bash
 cp .env.example .env          # fill in S3 creds/buckets, etc.
@@ -320,7 +357,7 @@ docker compose up --build
 curl localhost:8080/health    # {"status":"ok"}
 ```
 
-### Option B — run the server directly
+### Option C — run the server directly
 
 ```bash
 npm install
