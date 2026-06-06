@@ -1,13 +1,21 @@
 /**
- * NanoBananaProvider — the first concrete image provider.
+ * NanoBananaProvider — image generation via Google's "Nano Banana".
  *
- * This is intentionally the ONLY place "Nano Banana" specifics live. It calls
- * the provider's HTTP API with retries + timeouts. The API key is resolved from
- * Secrets Manager (env fallback for local dev) and cached.
+ * "Nano Banana" is Google's nickname for the Gemini 2.5 Flash Image model,
+ * served by the Gemini API. This file is the ONLY place those specifics live;
+ * it speaks the real Gemini `generateContent` contract:
  *
- * The HTTP shape here is a reasonable, documented assumption for the Nano Banana
- * API; swap the request/response mapping if the real contract differs. Nothing
- * outside this file needs to change.
+ *   POST {baseUrl}/models/{model}:generateContent
+ *   header:  x-goog-api-key: <gemini api key>
+ *   body:    { contents: [{ parts: [{ text }, { inline_data:{ mime_type, data }}] }],
+ *              generationConfig: { responseModalities: ["IMAGE"],
+ *                                  imageConfig: { aspectRatio } } }
+ *   resp:    { candidates: [{ content: { parts: [{ inlineData:{ mimeType, data }}] }}] }
+ *
+ * The model returns a single image per call, so to satisfy a job's `count` we
+ * fan out `count` requests in parallel. The Gemini image API has no `style` or
+ * `seed` parameters; style is expressed through the prompt, and `seed` from the
+ * request is ignored (not supported by the model).
  */
 
 import { config } from '../config/env';
@@ -19,16 +27,32 @@ import type { GenerateImagesParams, GeneratedImage, ImageProvider } from './type
 const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_ATTEMPTS = 3;
 
+/** Shape of the Gemini inline-data blob (REST returns camelCase). */
+interface GeminiInlineData {
+  mimeType?: string;
+  data?: string;
+}
+interface GeminiPart {
+  inlineData?: GeminiInlineData;
+  text?: string;
+}
+interface GeminiResponse {
+  candidates?: { content?: { parts?: GeminiPart[] } }[];
+  promptFeedback?: { blockReason?: string };
+}
+
 export class NanoBananaProvider implements ImageProvider {
   readonly id = 'nano-banana';
   readonly name = 'Nano Banana';
 
   private apiKey: string | null = null;
   private readonly baseUrl: string;
+  private readonly model: string;
   private readonly log: Logger;
 
-  constructor(opts?: { baseUrl?: string; apiKey?: string; logger?: Logger }) {
+  constructor(opts?: { baseUrl?: string; model?: string; apiKey?: string; logger?: Logger }) {
     this.baseUrl = opts?.baseUrl ?? config.providers.nanoBananaBaseUrl;
+    this.model = opts?.model ?? config.providers.nanoBananaModel;
     this.apiKey = opts?.apiKey ?? null;
     this.log = (opts?.logger ?? rootLogger).child({ provider: this.id });
   }
@@ -44,45 +68,50 @@ export class NanoBananaProvider implements ImageProvider {
 
   async generateImages(params: GenerateImagesParams): Promise<GeneratedImage[]> {
     const apiKey = await this.getApiKey();
+    const requestBody = this.buildRequest(params);
+    const count = Math.max(1, params.count);
 
-    const requestBody = {
-      prompt: params.prompt,
-      num_images: params.count,
-      style: params.stylePreset,
-      aspect_ratio: params.aspectRatio,
-      ...(params.seed !== undefined ? { seed: params.seed } : {}),
-      // Identity-preservation: send reference images as base64. Nano Banana uses
-      // these to anchor facial identity/resemblance in the output.
-      reference_images: params.referenceImages.map((r) => ({
-        content_type: r.contentType,
-        data_base64: r.data.toString('base64'),
-      })),
-    };
-
-    return withRetry(
-      async () => this.callApi(apiKey, requestBody, params.count),
-      {
-        maxAttempts: MAX_ATTEMPTS,
-        baseDelayMs: 500,
-        onRetry: (attempt, err) =>
-          this.log.warn('Retrying Nano Banana request', { attempt, error: String(err) }),
-      },
+    // Gemini returns one image per call; fan out `count` requests in parallel.
+    // Each call is retried independently; if any call ultimately fails the whole
+    // batch rejects, letting the strategy fall back to another provider.
+    return Promise.all(
+      Array.from({ length: count }, (_unused, index) =>
+        withRetry(() => this.callApi(apiKey, requestBody), {
+          maxAttempts: MAX_ATTEMPTS,
+          baseDelayMs: 500,
+          onRetry: (attempt, err) =>
+            this.log.warn('Retrying Nano Banana request', { index, attempt, error: String(err) }),
+        }),
+      ),
     );
   }
 
-  private async callApi(
-    apiKey: string,
-    body: unknown,
-    expectedCount: number,
-  ): Promise<GeneratedImage[]> {
+  /** Build the Gemini `generateContent` request body for one image. */
+  private buildRequest(params: GenerateImagesParams): unknown {
+    const parts: unknown[] = [{ text: params.prompt }];
+    // Identity-preservation: send reference images inline so Gemini anchors
+    // facial identity/resemblance in the output.
+    for (const ref of params.referenceImages) {
+      parts.push({ inline_data: { mime_type: ref.contentType, data: ref.data.toString('base64') } });
+    }
+    return {
+      contents: [{ parts }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        ...(params.aspectRatio ? { imageConfig: { aspectRatio: params.aspectRatio } } : {}),
+      },
+    };
+  }
+
+  private async callApi(apiKey: string, body: unknown): Promise<GeneratedImage> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(`${this.baseUrl}/v1/images/generate`, {
+      const res = await fetch(`${this.baseUrl}/models/${this.model}:generateContent`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${apiKey}`,
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -90,30 +119,31 @@ export class NanoBananaProvider implements ImageProvider {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        // 5xx / 429 are retryable; 4xx (except 429) are not.
+        // 5xx / 429 are retryable; other 4xx are deterministic and are not.
         const retryable = res.status >= 500 || res.status === 429;
         const err = Errors.providerError(`Nano Banana returned ${res.status}`, { status: res.status, body: text });
         (err as { retryable?: boolean }).retryable = retryable;
         throw err;
       }
 
-      const json = (await res.json()) as {
-        images?: { data_base64: string; content_type?: string; seed?: number }[];
-      };
-      const images = json.images ?? [];
-      if (images.length === 0) {
-        throw Errors.providerError('Nano Banana returned no images');
+      const json = (await res.json()) as GeminiResponse;
+      const parts = json.candidates?.[0]?.content?.parts ?? [];
+      const inline = parts.find((p) => p.inlineData?.data)?.inlineData;
+      if (!inline?.data) {
+        const blockReason = json.promptFeedback?.blockReason;
+        throw Errors.providerError(
+          blockReason
+            ? `Nano Banana returned no image (blocked: ${blockReason})`
+            : 'Nano Banana returned no image data',
+        );
       }
 
-      return images.slice(0, expectedCount).map((img) => {
-        const contentType = img.content_type ?? 'image/webp';
-        return {
-          data: Buffer.from(img.data_base64, 'base64'),
-          contentType,
-          extension: extensionFor(contentType),
-          ...(img.seed !== undefined ? { seed: img.seed } : {}),
-        };
-      });
+      const contentType = inline.mimeType ?? 'image/png';
+      return {
+        data: Buffer.from(inline.data, 'base64'),
+        contentType,
+        extension: extensionFor(contentType),
+      };
     } finally {
       clearTimeout(timeout);
     }
@@ -122,12 +152,12 @@ export class NanoBananaProvider implements ImageProvider {
 
 function extensionFor(contentType: string): string {
   switch (contentType) {
-    case 'image/png':
-      return 'png';
+    case 'image/webp':
+      return 'webp';
     case 'image/jpeg':
       return 'jpg';
-    case 'image/webp':
+    case 'image/png':
     default:
-      return 'webp';
+      return 'png';
   }
 }

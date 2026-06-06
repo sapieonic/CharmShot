@@ -85,8 +85,11 @@ export const config = {
   },
 
   providers: {
+    // "Nano Banana" is Google's nickname for Gemini 2.5 Flash Image, served by
+    // the Gemini API. The API key is a Google AI Studio / Gemini API key.
     nanoBananaApiKey: optStr('NANO_BANANA_API_KEY'),
-    nanoBananaBaseUrl: optStr('NANO_BANANA_BASE_URL') ?? 'https://api.nanobanana.example.com',
+    nanoBananaBaseUrl: optStr('NANO_BANANA_BASE_URL') ?? 'https://generativelanguage.googleapis.com/v1beta',
+    nanoBananaModel: optStr('NANO_BANANA_MODEL') ?? 'gemini-2.5-flash-image',
     defaultModelId: str('DEFAULT_MODEL_ID', 'nano-banana'),
     fallbackModelId: optStr('FALLBACK_MODEL_ID'),
   },
