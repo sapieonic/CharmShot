@@ -13,6 +13,7 @@ function fakeProvider(id: string, behaviour: 'ok' | 'fail'): ImageProvider {
   return {
     id,
     name: id,
+    model: id,
     async generateImages(_p: GenerateImagesParams): Promise<GeneratedImage[]> {
       if (behaviour === 'fail') throw new Error(`${id} failed`);
       return [{ data: Buffer.from(id), contentType: 'image/webp', extension: 'webp' }];

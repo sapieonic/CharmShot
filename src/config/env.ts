@@ -127,6 +127,27 @@ export const config = {
     namespace: str('METRICS_NAMESPACE', 'CharmShot'),
     enabled: bool('METRICS_ENABLED', true),
   },
+
+  // PostHog: server-side product analytics, LLM/AI observability ($ai_generation),
+  // and (via OpenTelemetry) log shipping. Everything is gated behind `enabled`
+  // + an API key, so the whole integration is a no-op until configured.
+  posthog: {
+    enabled: bool('POSTHOG_ENABLED', false),
+    // Project API key (starts with `phc_`). Required for any PostHog output.
+    apiKey: optStr('POSTHOG_API_KEY'),
+    // Ingestion host: https://us.i.posthog.com or https://eu.i.posthog.com (or self-hosted).
+    host: optStr('POSTHOG_HOST') ?? 'https://us.i.posthog.com',
+    // Client batching (non-blocking). Long-lived process, so defaults are fine.
+    flushAt: int('POSTHOG_FLUSH_AT', 20),
+    flushIntervalMs: int('POSTHOG_FLUSH_INTERVAL_MS', 10000),
+    // distinct_id used for backend/system events that aren't tied to a user.
+    systemDistinctId: optStr('POSTHOG_SYSTEM_DISTINCT_ID') ?? 'charmshot-backend',
+    // Ship structured logs to PostHog Logs over OTLP/HTTP. Independent toggle so
+    // analytics can run without log shipping (and vice versa).
+    logsEnabled: bool('POSTHOG_LOGS_ENABLED', false),
+    // OpenTelemetry resource service.name attached to shipped logs.
+    serviceName: optStr('POSTHOG_SERVICE_NAME') ?? 'charmshot-api',
+  },
 } as const;
 
 export type AppConfig = typeof config;

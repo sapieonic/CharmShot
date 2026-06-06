@@ -36,6 +36,14 @@ function provider(): OpenAIProvider {
   return new OpenAIProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'gpt-image-1' });
 }
 
+describe('OpenAIProvider identity', () => {
+  it('exposes id (route) and model (concrete model) for observability', () => {
+    const p = provider();
+    expect(p.id).toBe('openai');
+    expect(p.model).toBe('gpt-image-1');
+  });
+});
+
 describe('OpenAIProvider.generateImages', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

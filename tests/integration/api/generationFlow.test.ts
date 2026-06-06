@@ -84,6 +84,7 @@ function makeFakeProvider(): ImageProvider {
   return {
     id: 'nano-banana',
     name: 'Fake Nano Banana',
+    model: 'gemini-3.1-flash-image-preview',
     async generateImages(params) {
       if (providerState.shouldFail) {
         throw new Error('fake provider boom');

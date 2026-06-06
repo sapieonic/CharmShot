@@ -90,7 +90,7 @@ Key properties:
 .
 ├── src/
 │   ├── config/            # typed env configuration
-│   ├── shared/            # logger, errors, metrics, retry, ids, types
+│   ├── shared/            # logger, errors, metrics, posthog, telemetry, retry, ids, types
 │   ├── validation/        # zod request schemas
 │   ├── aws/               # S3 client (presign + server-side get/put)
 │   ├── db/                # MongoDB connection + index management
@@ -323,6 +323,21 @@ RevenueCat drives plan changes via `POST /v1/webhooks/revenuecat`, which:
   jobs_succeeded, jobs_failed, provider_latency_ms, credits_*). A log shipper can
   turn these into counters/timers; swap `src/shared/metrics.ts` for StatsD/OTEL
   if desired.
+- **PostHog (optional, off by default)** — set `POSTHOG_ENABLED=true` +
+  `POSTHOG_API_KEY` to ship analytics, AI observability, and logs to PostHog:
+  - **Analytics**: every metric is also captured as a product-analytics event
+    (`src/shared/posthog.ts`), attributed to the user (`uid`) where known.
+    PostHog has no raw metric ingestion, so counters/timers are built as
+    Insights/Trends over the event's `value`.
+  - **AI observability**: the provider strategy emits a `$ai_generation` event
+    per attempt — `$ai_model` is the concrete model (`gpt-image-1`,
+    `gemini-3.1-flash-image-preview`), `$ai_provider` is the route id
+    (`openai`/`nano-banana`), plus latency, trace id = `jobId`, and error. This
+    is provider-agnostic, so every registered model (incl. fallbacks) is covered
+    in PostHog's LLM Analytics with no per-provider wiring.
+  - **Logs**: set `POSTHOG_LOGS_ENABLED=true` to ship structured logs to
+    PostHog Logs over OTLP (`src/shared/telemetry.ts`); the stdout logger is
+    unchanged. See `.env.example` for all `POSTHOG_*` settings.
 - **Retries + timeouts** on model calls (exponential backoff w/ jitter).
 - **Health check** at `GET /health` (used by the Docker `HEALTHCHECK`).
 

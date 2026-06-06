@@ -45,7 +45,7 @@ export class OpenAIProvider implements ImageProvider {
 
   private apiKey: string | null = null;
   private readonly baseUrl: string;
-  private readonly model: string;
+  readonly model: string;
   private readonly quality: string | undefined;
   private readonly outputFormat: string | undefined;
   private readonly sizeOverride: string | undefined;

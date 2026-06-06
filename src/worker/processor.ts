@@ -63,7 +63,11 @@ export async function processGenerationJob(jobId: string, baseLogger: Logger): P
         aspectRatio: job.aspectRatio ?? '1:1',
         ...(job.seed !== undefined ? { seed: job.seed } : {}),
       },
-      { requestedModelId: job.modelId, logger: jobLogger },
+      {
+        requestedModelId: job.modelId,
+        logger: jobLogger,
+        ai: { distinctId: job.uid, traceId: job.jobId, properties: { presetId: job.presetId, count: job.count } },
+      },
     );
 
     // Persist outputs to user/job-scoped result keys.
@@ -77,7 +81,7 @@ export async function processGenerationJob(jobId: string, baseLogger: Logger): P
     );
 
     await markSucceeded(job.jobId, { resultKeys, providerUsed });
-    emitMetric('jobs_succeeded', 1, { dimensions: { provider: providerUsed } });
+    emitMetric('jobs_succeeded', 1, { dimensions: { provider: providerUsed }, distinctId: job.uid });
     await audit({ uid: job.uid, action: 'generation.succeeded', meta: { jobId: job.jobId, providerUsed } });
     jobLogger.info('Generation job succeeded', { providerUsed, results: resultKeys.length });
   } catch (err) {
@@ -85,14 +89,14 @@ export async function processGenerationJob(jobId: string, baseLogger: Logger): P
     const refund = config.credits.refundOnFailure && job.creditsReserved > 0;
     if (refund) {
       await refundCredits(job.uid, job.creditsReserved);
-      emitMetric('credits_refunded', job.creditsReserved);
+      emitMetric('credits_refunded', job.creditsReserved, { distinctId: job.uid });
     }
     await markFailed(
       job.jobId,
       { code: appErr.code, message: appErr.expose ? appErr.message : 'Generation failed' },
       { creditsRefunded: refund },
     );
-    emitMetric('jobs_failed', 1, { dimensions: { model: job.modelId } });
+    emitMetric('jobs_failed', 1, { dimensions: { model: job.modelId }, distinctId: job.uid });
     await audit({ uid: job.uid, action: 'generation.failed', meta: { jobId: job.jobId, code: appErr.code } });
     jobLogger.error('Generation job failed', appErr, { refunded: refund });
     // Terminal: do NOT rethrow. Message is deleted; failure is recorded.

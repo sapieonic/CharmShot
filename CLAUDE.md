@@ -58,7 +58,7 @@ There is **no ESLint** — `lint` is just `tsc --noEmit`. Local Docker stacks:
 
 **OpenAPI is generated from the same zod schemas used for request validation** (`src/validation/schemas.ts` → `src/openapi/document.ts`), so the published contract can't drift from validation. After changing an endpoint's schema or its `registerPath(...)` entry, run `npm run openapi:export`; CI runs `openapi:check` and fails if the committed spec is stale.
 
-**Observability:** structured JSON logs via `src/shared/logger.ts` with `requestId`/`uid`/`jobId` bound per request (use `logger.child({...})`); metrics are emitted as `kind:"metric"` log lines through `src/shared/metrics.ts`.
+**Observability:** structured JSON logs via `src/shared/logger.ts` with `requestId`/`uid`/`jobId` bound per request (use `logger.child({...})`); metrics are emitted as `kind:"metric"` log lines through `src/shared/metrics.ts`. **PostHog** is an optional, off-by-default sink (gated by `POSTHOG_ENABLED` + `POSTHOG_API_KEY`): `src/shared/metrics.ts` also forwards each metric to PostHog as a product-analytics event; the provider strategy (`src/providers/strategy.ts`) emits `$ai_generation` events for LLM Analytics (provider-agnostic — `$ai_model` is the provider's concrete `model`, `$ai_provider` its `id`, so every registered provider incl. fallbacks is covered); and with `POSTHOG_LOGS_ENABLED` the logger ships logs to PostHog Logs over OTLP (`src/shared/telemetry.ts`). The PostHog client (`src/shared/posthog.ts`) is a lazy singleton and a no-op when disabled — call sites never branch on config. Flush on shutdown is wired in `src/server/index.ts`.
 
 ## Conventions that bite
 

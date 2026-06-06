@@ -14,13 +14,25 @@
 import { config } from '../config/env';
 import { Logger, rootLogger } from '../shared/logger';
 import { toAppError } from '../shared/errors';
-import { timeProvider } from '../shared/metrics';
+import { emitMetric } from '../shared/metrics';
+import { captureAiGeneration } from '../shared/posthog';
 import { getModelProvider, hasModelProvider } from './factory';
 import type { GenerateImagesParams, GeneratedImage, ImageProvider } from './types';
 
 export interface ProviderExecutionResult {
   images: GeneratedImage[];
   providerUsed: string;
+}
+
+/** PostHog LLM-analytics context for a generation, threaded by the caller. */
+export interface AiTracingContext {
+  /** Identified user (uid). */
+  distinctId?: string;
+  /** Groups all attempts for this job into one trace (e.g. jobId). */
+  traceId?: string;
+  /** Extra `$ai_*`/custom properties (e.g. presetId, count). */
+  properties?: Record<string, unknown>;
+  groups?: Record<string, string>;
 }
 
 export interface WeightedRoute {
@@ -85,7 +97,7 @@ export function pickWeighted(routes: WeightedRoute[]): string {
  */
 export async function executeWithStrategy(
   params: GenerateImagesParams,
-  opts: { requestedModelId?: string; logger?: Logger } & ChainOptions = {},
+  opts: { requestedModelId?: string; logger?: Logger; ai?: AiTracingContext } & ChainOptions = {},
 ): Promise<ProviderExecutionResult> {
   const log = (opts.logger ?? rootLogger).child({ component: 'strategy' });
   const chain = resolveProviderChain(opts.requestedModelId, {
@@ -94,13 +106,26 @@ export async function executeWithStrategy(
   });
   let lastErr: unknown;
 
+  // Per-user attribution for the latency metric in PostHog (stdout metric is
+  // unaffected — distinctId is only used by the PostHog sink).
+  const latencyOpts = opts.ai?.distinctId ? { distinctId: opts.ai.distinctId } : {};
+
   for (const provider of chain) {
+    // Time each attempt once and emit both the latency metric and a PostHog
+    // `$ai_generation` event (success or error) for LLM-analytics traces.
+    const start = Date.now();
     try {
       log.info('Attempting provider', { provider: provider.id });
-      const images = await timeProvider(provider.id, () => provider.generateImages(params));
+      const images = await provider.generateImages(params);
+      const latencyMs = Date.now() - start;
+      emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
+      captureGeneration(provider, latencyMs, opts.ai);
       return { images, providerUsed: provider.id };
     } catch (err) {
+      const latencyMs = Date.now() - start;
       lastErr = err;
+      emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
+      captureGeneration(provider, latencyMs, opts.ai, err);
       log.warn('Provider failed, trying next if available', {
         provider: provider.id,
         error: String(err),
@@ -108,4 +133,18 @@ export async function executeWithStrategy(
     }
   }
   throw toAppError(lastErr);
+}
+
+/** Emit a `$ai_generation` event for one provider attempt (no-op if PostHog off). */
+function captureGeneration(provider: ImageProvider, latencyMs: number, ai?: AiTracingContext, err?: unknown): void {
+  captureAiGeneration({
+    model: provider.model,
+    provider: provider.id,
+    latencyMs,
+    ...(ai?.distinctId ? { distinctId: ai.distinctId } : {}),
+    ...(ai?.traceId ? { traceId: ai.traceId } : {}),
+    ...(ai?.properties ? { properties: ai.properties } : {}),
+    ...(ai?.groups ? { groups: ai.groups } : {}),
+    ...(err ? { isError: true, error: String(err) } : {}),
+  });
 }
