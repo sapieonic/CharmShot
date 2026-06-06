@@ -1,11 +1,8 @@
 name: CI
 
-# Primary trigger is pull_request (all branches); also run on direct pushes.
+# Runs ONLY on pull requests — never on direct branch pushes.
 on:
   pull_request:
-  push:
-    branches:
-      - '**'
 
 # Cancel superseded runs for the same ref (e.g. new push to an open PR branch).
 concurrency:
@@ -35,6 +32,9 @@ jobs:
 
       - name: Typecheck (tsc --noEmit)
         run: npm run typecheck
+
+      - name: Check OpenAPI spec is in sync
+        run: npm run openapi:check
 
   unit-tests:
     name: Unit Tests (coverage)

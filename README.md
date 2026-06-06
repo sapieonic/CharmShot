@@ -194,6 +194,26 @@ Result URLs are short-lived presigned GETs; S3 objects are never public.
 
 ---
 
+## API documentation (Swagger / OpenAPI)
+
+Interactive docs are generated from the **same zod schemas** used for request
+validation, so the published contract can't drift from the code.
+
+- **Swagger UI:** `GET /docs` (try-it-out enabled)
+- **Raw spec:** `GET /openapi.json` (OpenAPI 3.1)
+- **Committed spec files:** [`docs/openapi.json`](docs/openapi.json) and
+  [`docs/openapi.yaml`](docs/openapi.yaml) for client/codegen tooling
+
+```bash
+npm run openapi:export   # regenerate docs/openapi.{json,yaml}
+npm run openapi:check    # CI fails if the committed spec is stale
+```
+
+The spec is built in `src/openapi/document.ts` (via `@asteasolutions/zod-to-openapi`)
+and served by `@fastify/swagger` + `@fastify/swagger-ui`. To add/adjust an
+endpoint's docs, update its zod schema and the matching `registerPath(...)` entry,
+then run `npm run openapi:export`.
+
 ## Data model
 
 MongoDB holds all application state. Collections & key indexes:
@@ -349,6 +369,41 @@ encryption + lifecycle retention rules.
 
 ---
 
+## Versioning & releases
+
+Versioning is automated from [Conventional Commits](https://www.conventionalcommits.org)
+via [semantic-release](https://semantic-release.gitbook.io). When a PR is merged
+into `main`, a release workflow:
+
+1. Reads the merged commits and computes the next [SemVer](https://semver.org):
+   `fix:` → patch, `feat:` → minor, `feat!:` / `BREAKING CHANGE:` → major.
+2. Updates `package.json` + `CHANGELOG.md` and commits them back (`[skip ci]`).
+3. Creates the git tag and a **GitHub Release** with generated notes.
+
+Commits with non-releasable types (`docs`, `chore`, `refactor`, `test`, `ci`,
+`build`, `style`) don't trigger a release.
+
+Because PRs are **squash-merged**, the **PR title** is the commit that lands on
+`main` — so it must be a valid Conventional Commit. The `PR Title` workflow
+enforces this on every PR. Examples:
+
+```
+feat: add weighted provider routing
+fix: refund credits when the worker times out
+feat!: change /v1/generations response shape   # major bump
+```
+
+Triggering honors the "CI on PRs only" policy: the release runs off the
+`pull_request` merged event (no `push` triggers). `package.json` carries
+`0.0.0-development` on `main`; the real version lives in the git tags / GitHub
+Releases.
+
+A Husky **`commit-msg` hook** runs commitlint on every local commit so badly
+formatted messages are rejected before they're created (config in
+`commitlint.config.cjs`). The hook is installed automatically by the `prepare`
+script on `npm install`; you can also check a message manually with
+`npm run commitlint`.
+
 ## Testing
 
 ```bash
@@ -368,11 +423,11 @@ npm run test:all           # unit then integration
 
 ### CI
 
-`.github/workflows/ci.yml` runs on pull requests and pushes:
+`.github/workflows/ci.yml` runs on pull requests only:
 
 | Job | What |
 |-----|------|
-| Lint & Typecheck | `tsc --noEmit` |
+| Lint & Typecheck | `tsc --noEmit` + OpenAPI spec sync check |
 | Unit Tests | `npm run test:coverage` + coverage artifact |
 | Integration Tests | `npm run test:integration` against a `mongo:7` service container |
 | Docker Build | builds the production image |

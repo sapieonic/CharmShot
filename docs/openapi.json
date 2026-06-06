@@ -1,0 +1,924 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CharmShot API",
+    "version": "1.0.0",
+    "description": "Identity-preserving AI image generation. Users upload reference selfies and receive enhanced photos. All endpoints except the webhook require a Firebase ID token."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current host"
+    },
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Uploads"
+    },
+    {
+      "name": "Generations"
+    },
+    {
+      "name": "Presets"
+    },
+    {
+      "name": "Entitlements"
+    },
+    {
+      "name": "Webhooks"
+    },
+    {
+      "name": "System"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Firebase ID token: `Authorization: Bearer <token>`"
+      },
+      "webhookAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "authorization",
+        "description": "Shared secret configured in RevenueCat (REVENUECAT_WEBHOOK_AUTH)."
+      }
+    },
+    "schemas": {
+      "PresignRequest": {
+        "type": "object",
+        "properties": {
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "contentLength": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 10485760
+          }
+        },
+        "required": [
+          "contentType",
+          "fileName"
+        ]
+      },
+      "CreateGenerationRequest": {
+        "type": "object",
+        "properties": {
+          "referenceImageKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 10
+          },
+          "presetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "aspectRatio": {
+            "type": "string",
+            "enum": [
+              "1:1",
+              "4:5",
+              "3:4",
+              "2:3",
+              "16:9",
+              "9:16"
+            ],
+            "default": "1:1"
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "referenceImageKeys",
+          "presetId",
+          "count"
+        ]
+      },
+      "RevenueCatWebhook": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "app_user_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "product_id": {
+                "type": "string"
+              },
+              "entitlement_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "entitlement_id": {
+                "type": "string"
+              },
+              "period_type": {
+                "type": "string"
+              },
+              "expiration_at_ms": {
+                "type": "number"
+              },
+              "aliases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "original_app_user_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "app_user_id"
+            ]
+          },
+          "api_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "PresignResponse": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Short-lived presigned S3 PUT URL"
+          },
+          "s3Key": {
+            "type": "string",
+            "example": "uid123/uploads/abc/selfie.jpg"
+          }
+        },
+        "required": [
+          "uploadUrl",
+          "s3Key"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "INVALID_INPUT"
+              },
+              "message": {
+                "type": "string",
+                "example": "Request validation failed"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "GenerationCreatedResponse": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "example": "job_5f2c..."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING"
+            ]
+          }
+        },
+        "required": [
+          "jobId",
+          "status"
+        ]
+      },
+      "JobResult": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "example": 0
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Short-lived presigned S3 GET URL"
+          }
+        },
+        "required": [
+          "index",
+          "url"
+        ]
+      },
+      "JobStatusResponse": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "SUCCEEDED",
+              "FAILED"
+            ]
+          },
+          "presetId": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "modelUsed": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobResult"
+            }
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "presetId",
+          "count",
+          "results",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "Preset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "business-elite"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "promptTemplate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "category",
+          "promptTemplate"
+        ]
+      },
+      "PresetsResponse": {
+        "type": "object",
+        "properties": {
+          "presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Preset"
+            }
+          }
+        },
+        "required": [
+          "presets"
+        ]
+      },
+      "EntitlementsResponse": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "example": "free"
+          },
+          "creditsRemaining": {
+            "type": "number",
+            "example": 10
+          },
+          "entitlementActive": {
+            "type": "boolean"
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "plan",
+          "creditsRemaining",
+          "entitlementActive",
+          "lastSyncedAt"
+        ]
+      },
+      "WebhookResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "processed",
+              "duplicate"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/uploads/presign": {
+      "post": {
+        "tags": [
+          "Uploads"
+        ],
+        "summary": "Create a presigned upload URL",
+        "description": "Returns a short-lived S3 PUT URL scoped to the caller. Only image/jpeg, image/png, image/webp are allowed, max 10MB. The client PUTs the bytes directly to `uploadUrl` with a matching Content-Type.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentType": {
+                    "type": "string",
+                    "enum": [
+                      "image/jpeg",
+                      "image/png",
+                      "image/webp"
+                    ]
+                  },
+                  "fileName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "contentLength": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10485760
+                  }
+                },
+                "required": [
+                  "contentType",
+                  "fileName"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Presigned upload URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Firebase token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported content type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/generations": {
+      "post": {
+        "tags": [
+          "Generations"
+        ],
+        "summary": "Create a generation job",
+        "description": "Reserves credits (1 per requested image) and enqueues an async generation job. Returns immediately with a PENDING job; poll GET /v1/generations/{jobId} for status.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "referenceImageKeys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 10
+                  },
+                  "presetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  },
+                  "modelId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "aspectRatio": {
+                    "type": "string",
+                    "enum": [
+                      "1:1",
+                      "4:5",
+                      "3:4",
+                      "2:3",
+                      "16:9",
+                      "9:16"
+                    ],
+                    "default": "1:1"
+                  },
+                  "seed": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "referenceImageKeys",
+                  "presetId",
+                  "count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationCreatedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Firebase token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Insufficient credits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Reference key not owned by caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/generations/{jobId}": {
+      "get": {
+        "tags": [
+          "Generations"
+        ],
+        "summary": "Get generation job status",
+        "description": "Returns job status and, when SUCCEEDED, short-lived presigned URLs for the results.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "jobId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Firebase token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/presets": {
+      "get": {
+        "tags": [
+          "Presets"
+        ],
+        "summary": "List style presets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available presets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Firebase token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/entitlements": {
+      "get": {
+        "tags": [
+          "Entitlements"
+        ],
+        "summary": "Get current plan and remaining credits",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entitlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Firebase token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhooks/revenuecat": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "RevenueCat billing webhook",
+        "description": "Idempotent webhook authenticated by a shared-secret Authorization header (NOT Firebase). Updates plan/credits by event type.",
+        "security": [
+          {
+            "webhookAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "event": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "app_user_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "product_id": {
+                        "type": "string"
+                      },
+                      "entitlement_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "entitlement_id": {
+                        "type": "string"
+                      },
+                      "period_type": {
+                        "type": "string"
+                      },
+                      "expiration_at_ms": {
+                        "type": "number"
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "original_app_user_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "type",
+                      "app_user_id"
+                    ]
+                  },
+                  "api_version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "event"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed (or duplicate, ignored)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid webhook secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

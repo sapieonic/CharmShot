@@ -84,6 +84,21 @@ describe('Fastify server adapter', () => {
     expect(res.json()).toEqual({ jobId: 'job_x' });
   });
 
+  it('serves the OpenAPI spec at /openapi.json without hitting the router', async () => {
+    const res = await app.inject({ method: 'GET', url: '/openapi.json' });
+    expect(res.statusCode).toBe(200);
+    const spec = res.json();
+    expect(spec.openapi).toBe('3.1.0');
+    expect(spec.info.title).toBe('CharmShot API');
+    // /openapi.json is its own route, not delegated to dispatch.
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('serves the Swagger UI at /docs', async () => {
+    const res = await app.inject({ method: 'GET', url: '/docs' });
+    expect(res.statusCode).toBe(200);
+  });
+
   it('routes unknown paths through dispatch (consistent 404 envelope)', async () => {
     dispatch.mockResolvedValue({
       statusCode: 404,
