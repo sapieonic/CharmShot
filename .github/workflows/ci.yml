@@ -1,0 +1,124 @@
+name: CI
+
+# Primary trigger is pull_request (all branches); also run on direct pushes.
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+
+# Cancel superseded runs for the same ref (e.g. new push to an open PR branch).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: CI only needs to read the repository contents.
+permissions:
+  contents: read
+
+jobs:
+  lint-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck backend (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Typecheck infra workspace (CDK app)
+        run: npm --workspace infra run build
+
+  unit-tests:
+    name: Unit Tests (coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+
+  integration-tests:
+    name: Integration Tests (MongoDB)
+    runs-on: ubuntu-latest
+    # Real MongoDB provided as a service container, reachable at
+    # mongodb://localhost:27017 so the integration suites execute (not skip).
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - '27017:27017'
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })' --quiet || mongo --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests against MongoDB
+        env:
+          MONGODB_URI: mongodb://localhost:27017
+          MONGODB_DB_NAME: charmshot_ci
+        run: npm run test:integration
+
+  infra-synth:
+    name: Infra Synth (CDK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Synthesize CDK app
+        # Synth must not require real AWS credentials; dummy account/region
+        # satisfy any env-driven lookups in the CDK app.
+        env:
+          CDK_DEFAULT_ACCOUNT: '000000000000'
+          CDK_DEFAULT_REGION: us-east-1
+        run: npm run synth

@@ -14,14 +14,14 @@ const { seenEventIds, recordWebhookEventOnce, applyEntitlementUpdate, audit } = 
     audit: vi.fn(async () => undefined),
   };
 });
-vi.mock('../src/repositories/webhookEventRepository', () => ({ recordWebhookEventOnce }));
-vi.mock('../src/repositories/entitlementRepository', () => ({ applyEntitlementUpdate }));
-vi.mock('../src/repositories/auditLogRepository', () => ({ audit }));
+vi.mock('../../../src/repositories/webhookEventRepository', () => ({ recordWebhookEventOnce }));
+vi.mock('../../../src/repositories/entitlementRepository', () => ({ applyEntitlementUpdate }));
+vi.mock('../../../src/repositories/auditLogRepository', () => ({ audit }));
 
-import { processRevenueCatEvent, verifyWebhookAuth } from '../src/services/webhookService';
-import { rootLogger } from '../src/shared/logger';
-import { AppError } from '../src/shared/errors';
-import type { RevenueCatWebhook } from '../src/validation/schemas';
+import { processRevenueCatEvent, verifyWebhookAuth } from '../../../src/services/webhookService';
+import { rootLogger } from '../../../src/shared/logger';
+import { AppError } from '../../../src/shared/errors';
+import type { RevenueCatWebhook } from '../../../src/validation/schemas';
 
 function makeEvent(overrides: Partial<RevenueCatWebhook['event']> = {}): RevenueCatWebhook {
   return {

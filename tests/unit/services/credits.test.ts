@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EntitlementRecord } from '../src/shared/types';
+import type { EntitlementRecord } from '../../../src/shared/types';
 
 /**
  * A minimal in-memory stand-in for the entitlements collection that faithfully
@@ -55,7 +55,7 @@ const fakeEntitlements = {
   },
 };
 
-vi.mock('../src/db/mongo', () => ({
+vi.mock('../../../src/db/mongo', () => ({
   collections: async () => ({ entitlements: fakeEntitlements }),
 }));
 
@@ -64,7 +64,7 @@ import {
   reserveCredits,
   refundCredits,
   applyEntitlementUpdate,
-} from '../src/repositories/entitlementRepository';
+} from '../../../src/repositories/entitlementRepository';
 
 describe('credit reservation / refund', () => {
   beforeEach(() => {

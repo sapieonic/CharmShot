@@ -7,14 +7,14 @@ const { presignUpload } = vi.hoisted(() => ({
     s3Key: p.key,
   })),
 }));
-vi.mock('../src/aws/s3', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/aws/s3')>();
+vi.mock('../../../src/aws/s3', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/aws/s3')>();
   return { ...actual, presignUpload };
 });
 
-import { createPresignedUpload } from '../src/services/uploadService';
-import { presignRequestSchema, parseOrThrow } from '../src/validation/schemas';
-import { AppError } from '../src/shared/errors';
+import { createPresignedUpload } from '../../../src/services/uploadService';
+import { presignRequestSchema, parseOrThrow } from '../../../src/validation/schemas';
+import { AppError } from '../../../src/shared/errors';
 
 describe('presigned upload flow', () => {
   it('produces a user-scoped key and a signed URL', async () => {

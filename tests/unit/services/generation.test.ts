@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { JobRecord } from '../src/shared/types';
+import type { JobRecord } from '../../../src/shared/types';
 
 // --- Mocks ----------------------------------------------------------------
 const { reserveCredits, refundCredits, createJob, markFailed, findJobForUser, enqueueGenerationJob, audit } =
@@ -12,19 +12,19 @@ const { reserveCredits, refundCredits, createJob, markFailed, findJobForUser, en
     enqueueGenerationJob: vi.fn(async () => undefined),
     audit: vi.fn(async () => undefined),
   }));
-vi.mock('../src/repositories/entitlementRepository', () => ({ reserveCredits, refundCredits }));
-vi.mock('../src/repositories/jobRepository', () => ({ createJob, markFailed, findJobForUser }));
-vi.mock('../src/aws/sqs', () => ({ enqueueGenerationJob }));
-vi.mock('../src/repositories/auditLogRepository', () => ({ audit }));
+vi.mock('../../../src/repositories/entitlementRepository', () => ({ reserveCredits, refundCredits }));
+vi.mock('../../../src/repositories/jobRepository', () => ({ createJob, markFailed, findJobForUser }));
+vi.mock('../../../src/aws/sqs', () => ({ enqueueGenerationJob }));
+vi.mock('../../../src/repositories/auditLogRepository', () => ({ audit }));
 
-vi.mock('../src/aws/s3', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/aws/s3')>();
+vi.mock('../../../src/aws/s3', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/aws/s3')>();
   return { ...actual, presignResult: vi.fn(async (key: string) => `https://signed/${key}`) };
 });
 
-import { createGeneration, getGenerationStatus } from '../src/services/generationService';
-import { rootLogger } from '../src/shared/logger';
-import { AppError } from '../src/shared/errors';
+import { createGeneration, getGenerationStatus } from '../../../src/services/generationService';
+import { rootLogger } from '../../../src/shared/logger';
+import { AppError } from '../../../src/shared/errors';
 
 const uid = 'uid-1';
 const validInput = {

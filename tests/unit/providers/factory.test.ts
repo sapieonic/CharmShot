@@ -5,9 +5,9 @@ import {
   hasModelProvider,
   listModelIds,
   registerModelProvider,
-} from '../src/providers/factory';
-import { executeWithStrategy, pickWeighted, resolveProviderChain } from '../src/providers/strategy';
-import type { GenerateImagesParams, GeneratedImage, ImageProvider } from '../src/providers/types';
+} from '../../../src/providers/factory';
+import { executeWithStrategy, pickWeighted, resolveProviderChain } from '../../../src/providers/strategy';
+import type { GenerateImagesParams, GeneratedImage, ImageProvider } from '../../../src/providers/types';
 
 function fakeProvider(id: string, behaviour: 'ok' | 'fail'): ImageProvider {
   return {

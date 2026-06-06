@@ -5,13 +5,13 @@ const { upsertUser, getOrCreateEntitlement } = vi.hoisted(() => ({
   upsertUser: vi.fn(async (u: unknown) => u),
   getOrCreateEntitlement: vi.fn(async () => ({})),
 }));
-vi.mock('../src/repositories/userRepository', () => ({ upsertUser, findUser: vi.fn() }));
-vi.mock('../src/repositories/entitlementRepository', () => ({ getOrCreateEntitlement }));
+vi.mock('../../../src/repositories/userRepository', () => ({ upsertUser, findUser: vi.fn() }));
+vi.mock('../../../src/repositories/entitlementRepository', () => ({ getOrCreateEntitlement }));
 
-import { extractBearerToken } from '../src/auth/firebase';
-import { authenticate } from '../src/services/authService';
-import { AppError } from '../src/shared/errors';
-import type { AuthenticatedUser, TokenVerifier } from '../src/auth/firebase';
+import { extractBearerToken } from '../../../src/auth/firebase';
+import { authenticate } from '../../../src/services/authService';
+import { AppError } from '../../../src/shared/errors';
+import type { AuthenticatedUser, TokenVerifier } from '../../../src/auth/firebase';
 
 describe('extractBearerToken', () => {
   it('extracts the token from a Bearer header', () => {
