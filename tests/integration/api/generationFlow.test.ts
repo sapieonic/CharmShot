@@ -60,7 +60,7 @@ vi.mock('../../../src/aws/s3', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../src/aws/sqs', () => ({
+vi.mock('../../../src/queue/jobQueue', () => ({
   enqueueGenerationJob: vi.fn(async () => undefined),
 }));
 
@@ -74,7 +74,7 @@ import type { ImageProvider } from '../../../src/providers/types';
 import { processGenerationJob } from '../../../src/worker/processor';
 import { rootLogger } from '../../../src/shared/logger';
 import { reserveCredits } from '../../../src/repositories/entitlementRepository';
-import { enqueueGenerationJob } from '../../../src/aws/sqs';
+import { enqueueGenerationJob } from '../../../src/queue/jobQueue';
 import { presignResult } from '../../../src/aws/s3';
 
 // A deterministic fake provider; `shouldFail` toggles the failure path.

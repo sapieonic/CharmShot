@@ -1,0 +1,66 @@
+# Local development stack: the CharmShot server + MongoDB.
+#
+# S3 is the only external dependency. Point the S3_* / AWS_* variables at a real
+# AWS account, or run a local S3-compatible server (e.g. MinIO) and set
+# S3_ENDPOINT + S3_FORCE_PATH_STYLE=true. A commented MinIO service is included
+# below to get fully offline.
+#
+#   docker compose up --build
+#   curl localhost:8080/health
+
+services:
+  app:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      LOG_LEVEL: info
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB_NAME: charmshot
+      # --- S3 (required) ---
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      UPLOADS_BUCKET: ${UPLOADS_BUCKET:-charmshot-uploads}
+      RESULTS_BUCKET: ${RESULTS_BUCKET:-charmshot-results}
+      # For MinIO/LocalStack, uncomment:
+      # S3_ENDPOINT: http://minio:9000
+      # S3_FORCE_PATH_STYLE: 'true'
+      # --- Auth / providers / billing ---
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-charmshot-dev}
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
+      NANO_BANANA_API_KEY: ${NANO_BANANA_API_KEY:-dev-nano-banana-key}
+      REVENUECAT_WEBHOOK_AUTH: ${REVENUECAT_WEBHOOK_AUTH:-dev-revenuecat-secret}
+      WORKER_CONCURRENCY: '2'
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Optional fully-offline S3. Uncomment this service and the S3_ENDPOINT vars
+  # above to run without real AWS. Create the buckets after first start.
+  # minio:
+  #   image: minio/minio
+  #   command: server /data --console-address ":9001"
+  #   ports: ['9000:9000', '9001:9001']
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   volumes: ['minio-data:/data']
+
+volumes:
+  mongo-data:
+  # minio-data:

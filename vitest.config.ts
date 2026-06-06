@@ -15,7 +15,7 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: 'coverage/unit',
       include: ['src/**/*.ts'],
-      exclude: ['src/local/**', 'src/**/index.ts', 'src/api/lambda.ts', 'src/worker/lambda.ts'],
+      exclude: ['src/server/index.ts', 'src/**/index.ts', 'src/worker/processor.ts'],
     },
   },
 });

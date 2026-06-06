@@ -102,3 +102,16 @@ export async function listJobsForUser(uid: string, limit = 50): Promise<JobRecor
   const { jobs } = await collections();
   return jobs.find({ uid }).sort({ createdAt: -1 }).limit(limit).toArray();
 }
+
+/**
+ * Find jobs that are still queued/in-flight. Used at server startup to recover
+ * work that was enqueued in-memory but not finished before a restart.
+ */
+export async function findUnfinishedJobs(limit = 500): Promise<JobRecord[]> {
+  const { jobs } = await collections();
+  return jobs
+    .find({ status: { $in: ['PENDING', 'PROCESSING'] } })
+    .sort({ createdAt: 1 })
+    .limit(limit)
+    .toArray();
+}

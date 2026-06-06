@@ -13,7 +13,6 @@
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { config } from '../config/env';
-import { getSecretJson } from '../aws/secrets';
 import { Errors } from '../shared/errors';
 import type { AuthenticatedUser } from '../shared/types';
 
@@ -31,13 +30,13 @@ async function getApp(): Promise<App> {
       const existing = getApps();
       if (existing.length > 0) return existing[0]!;
 
-      if (config.firebase.serviceAccountSecretArn) {
-        const sa = await getSecretJson<ServiceAccountJson>(config.firebase.serviceAccountSecretArn);
+      if (config.firebase.serviceAccountJson) {
+        const sa = JSON.parse(config.firebase.serviceAccountJson) as ServiceAccountJson;
         return initializeApp({
           credential: cert({
             projectId: sa.project_id,
             clientEmail: sa.client_email,
-            // Secrets often store the key with escaped newlines.
+            // Env values often store the key with escaped newlines.
             privateKey: sa.private_key.replace(/\\n/g, '\n'),
           }),
           projectId: sa.project_id,

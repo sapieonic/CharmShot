@@ -7,9 +7,6 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "workspaces": [
-    "infra"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -20,23 +17,18 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:all": "npm run test:unit && npm run test:integration",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "dev:api": "tsx watch src/local/server.ts",
-    "cdk": "npm --workspace infra run cdk --",
-    "deploy": "npm --workspace infra run deploy",
-    "synth": "npm --workspace infra run synth"
+    "start": "node dist/server/index.js",
+    "dev": "tsx watch src/server/index.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudwatch": "^3.654.0",
     "@aws-sdk/client-s3": "^3.654.0",
-    "@aws-sdk/client-secrets-manager": "^3.654.0",
-    "@aws-sdk/client-sqs": "^3.654.0",
     "@aws-sdk/s3-request-presigner": "^3.654.0",
+    "fastify": "^4.29.1",
     "firebase-admin": "^12.5.0",
     "mongodb": "^6.9.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.145",
     "@types/node": "^22.7.4",
     "@vitest/coverage-v8": "^2.1.1",
     "esbuild": "^0.24.0",

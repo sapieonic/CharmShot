@@ -5,7 +5,7 @@
  *   1. Validate preset + reference keys (must belong to the user).
  *   2. Atomically reserve credits (1 credit per requested image).
  *   3. Persist a PENDING job.
- *   4. Enqueue async work to SQS.
+ *   4. Enqueue async work to the in-process background worker.
  *
  * The heavy lifting (model calls, S3 writes) happens in the worker. This module
  * is provider-agnostic — it never references a concrete provider, only a
@@ -14,7 +14,7 @@
 
 import { config } from '../config/env';
 import { keyBelongsToUser, presignResult } from '../aws/s3';
-import { enqueueGenerationJob } from '../aws/sqs';
+import { enqueueGenerationJob } from '../queue/jobQueue';
 import { newJobId } from '../shared/ids';
 import { Errors } from '../shared/errors';
 import { emitMetric } from '../shared/metrics';

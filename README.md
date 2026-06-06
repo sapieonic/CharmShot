@@ -4,10 +4,11 @@ AI image-generation platform backend. Users upload reference selfies and receive
 enhanced photos that **preserve identity and resemblance** while improving
 lighting, grooming, outfit, and composition.
 
-Built with TypeScript on Node.js 22, deployed to AWS (API Gateway HTTP API +
-Lambda + SQS + S3 + CloudWatch), backed by MongoDB, authenticated with Firebase,
-and billed via RevenueCat. The image-generation model sits behind a provider
-factory so new models can be added without touching job orchestration.
+Built with TypeScript on Node.js 22 as a single long-running **Fastify server**
+with an **in-process background worker**. State lives in MongoDB; uploaded and
+generated images live in **S3 (the only external AWS dependency)**. Auth is
+Firebase; billing is RevenueCat. The image model sits behind a provider factory
+so new models can be added without touching job orchestration.
 
 ---
 
@@ -22,7 +23,7 @@ factory so new models can be added without touching job orchestration.
 - [Security & compliance](#security--compliance)
 - [Observability](#observability)
 - [Local development](#local-development)
-- [Configuration & secrets](#configuration--secrets)
+- [Configuration](#configuration)
 - [Deployment](#deployment)
 - [Testing](#testing)
 
@@ -31,45 +32,55 @@ factory so new models can be added without touching job orchestration.
 ## Architecture
 
 ```
-                ┌────────────────────────────────────────────────────────┐
-   Firebase ID  │                                                        │
-   token  ─────▶│  API Gateway (HTTP API)                                │
-                │        │                                               │
-                │        ▼                                               │
-                │   API Lambda  ── verify token (Firebase Admin)         │
-                │      │  │  │     upsert user / entitlement (MongoDB)    │
-                │      │  │  └────▶ presign S3 upload URL                 │
-                │      │  └───────▶ reserve credits + create job (Mongo)  │
-                │      │            enqueue ──────────────┐               │
-                │      └───────────▶ read job status      │               │
-                └──────────────────────────────────────── │ ──────────────┘
-                                                           ▼
-                                                   ┌──────────────┐  on repeated
-                                                   │ SQS queue    │──failure──▶ DLQ
-                                                   └──────┬───────┘
-                                                          ▼
-                                                  ┌────────────────┐
-                                                  │ Worker Lambda  │
-                                                  │  fetch refs(S3)│
-                                                  │  provider strat│──▶ Model provider(s)
-                                                  │  write results │      (Nano Banana, …)
-                                                  │  update Mongo  │
-                                                  └────────────────┘
+   Firebase ID token
+        │
+        ▼
+  ┌──────────────────────────────────────────────┐
+  │  Fastify server (one process)                 │
+  │                                               │
+  │   HTTP routes ── verify token (Firebase)      │
+  │      │  │  │     upsert user/entitlement (Mongo)
+  │      │  │  └────▶ presign S3 upload URL ──────┼──▶ S3 (uploads)
+  │      │  └───────▶ reserve credits + create    │
+  │      │            job (Mongo) ── enqueue ──┐   │
+  │      └───────────▶ read job status         │   │
+  │                                            ▼   │
+  │   In-process worker (concurrency-limited)      │
+  │      fetch refs (S3) ─────────────────────────┼──▶ S3 (uploads)
+  │      provider strategy ──▶ model providers     │
+  │      write results ───────────────────────────┼──▶ S3 (results)
+  │      update job (Mongo)                        │
+  └──────────────────────────────────────────────┘
+                    │
+                    ▼
+                MongoDB
 ```
 
-**Generation is asynchronous.** The API Lambda only reserves credits, persists a
-`PENDING` job, and enqueues an SQS message. The Worker Lambda does the heavy
-lifting (fetch references, run the model via the provider strategy, write
-results to S3, update the job). Status is polled via `GET /v1/generations/{jobId}`.
+**Generation is asynchronous, in one process.** An HTTP request reserves credits,
+persists a `PENDING` job, and hands it to the in-process queue, returning
+`{ jobId, status: "PENDING" }` immediately. The background worker (a
+concurrency-limited queue running in the same Node process) does the slow work —
+fetch references, run the model via the provider strategy, write results to S3,
+update the job. Clients poll `GET /v1/generations/{jobId}`.
 
 Key properties:
 
+- **One deployable** — server + worker in a single container; no SQS, no Lambda,
+  no API Gateway. The only AWS service used is S3.
 - **Provider-agnostic pipeline** — job logic never references a concrete model.
-- **At-least-once safe** — the worker claims a job (`PENDING → PROCESSING`) once;
-  duplicate SQS deliveries are no-ops.
+- **Restart-safe** — the queue is in-memory, so on boot the server re-enqueues
+  any jobs left `PENDING`/`PROCESSING` in MongoDB (`recoverUnfinishedJobs`).
+  Claiming a job (`PENDING → PROCESSING`) is guarded so duplicates are no-ops.
 - **Failure handling** — business failures mark the job `FAILED` and (optionally)
-  refund credits; infrastructure failures bubble up as SQS batch-item failures
-  and are retried, eventually landing in the DLQ.
+  refund credits; unexpected errors are caught so one bad job can't crash the
+  worker loop.
+- **Graceful shutdown** — on SIGINT/SIGTERM the server stops accepting
+  connections, drains in-flight jobs, then closes Mongo.
+
+> Scaling note: with an in-process worker, run a small number of instances and
+> tune `WORKER_CONCURRENCY`. If you later need to scale the API and the workers
+> independently, set `WORKER_ENABLED=false` on the API instances and run
+> separate worker instances — the queue/processor split already supports it.
 
 ---
 
@@ -78,10 +89,10 @@ Key properties:
 ```
 .
 ├── src/
-│   ├── config/            # typed env configuration (non-secret)
+│   ├── config/            # typed env configuration
 │   ├── shared/            # logger, errors, metrics, retry, ids, types
 │   ├── validation/        # zod request schemas
-│   ├── aws/               # S3, SQS, Secrets Manager clients
+│   ├── aws/               # S3 client (presign + server-side get/put)
 │   ├── db/                # MongoDB connection + index management
 │   ├── repositories/      # users, jobs, entitlements, webhook_events, audit
 │   ├── auth/              # Firebase ID token verification
@@ -90,19 +101,21 @@ Key properties:
 │   ├── presets/           # style presets w/ identity-preservation prompts
 │   ├── services/          # auth, upload, generation, entitlement, webhook
 │   ├── middleware/        # per-uid rate limiting
+│   ├── queue/             # in-process background job queue (replaces SQS)
 │   ├── http/              # framework-agnostic request/response types
-│   ├── api/               # router + Lambda entrypoint + route handlers
-│   ├── worker/            # SQS worker processor + Lambda entrypoint
-│   └── local/             # local dev HTTP server
-├── infra/                 # AWS CDK (TypeScript) app
-├── tests/                 # vitest unit tests
-├── .env.example           # environment variable reference
+│   ├── api/               # router + route handlers
+│   ├── worker/            # generation processor + worker bootstrap
+│   └── server/            # Fastify app + entrypoint
+├── tests/                 # vitest: tests/unit/** and tests/integration/**
+├── Dockerfile             # multi-stage production image
+├── docker-compose.yml     # local stack (server + mongo)
+├── .env.example
 └── README.md
 ```
 
 Separation of concerns is strict: **routes → services → repositories →
-(providers / aws / db)**. Handlers contain no business logic; repositories
-contain no HTTP concerns; providers know nothing about jobs.
+(providers / aws / db)**. The Fastify layer is a thin adapter over the
+framework-agnostic router (`src/api/router.ts`), so HTTP transport is swappable.
 
 ---
 
@@ -154,7 +167,7 @@ Allowed types: `image/jpeg`, `image/png`, `image/webp`. Max 10 MB. The client
   "aspectRatio": "4:5",            // optional
   "seed": 12345                     // optional
 }
-// response (202-style)
+// response (201)
 { "jobId": "job_...", "status": "PENDING" }
 ```
 
@@ -217,28 +230,16 @@ interface ImageProvider {
 }
 ```
 
-Providers are stored in a registry:
-
-```ts
-registerModelProvider('nano-banana', new NanoBananaProvider());
-const provider = getModelProvider('nano-banana');
-```
-
-**Adding a new model is one line** in `src/providers/index.ts` — implement the
-interface and register it. No changes to the worker, generation service, or API.
-
-A **strategy** (`src/providers/strategy.ts`) layers selection on top:
-
-- **primary** — the requested `modelId`, else the configured default
-- **fallback** — tried automatically if the primary throws
-- **weighted routing** — `pickWeighted([...])` for future A/B / cost routing
-
-`Nano Banana` is implemented purely as `NanoBananaProvider` — it is never
-referenced by name anywhere in the orchestration code.
+Providers are stored in a registry (`registerModelProvider` / `getModelProvider`).
+**Adding a new model is one line** in `src/providers/index.ts`. A **strategy**
+(`src/providers/strategy.ts`) layers selection on top: a **primary** provider
+(requested `modelId` or the configured default), an automatic **fallback** if the
+primary throws, and optional **weighted routing**. `Nano Banana` is implemented
+purely as `NanoBananaProvider` and is never referenced by name in orchestration.
 
 > The Nano Banana HTTP request/response mapping in `nanoBananaProvider.ts` is a
-> documented, self-contained assumption. If the real API contract differs, only
-> that file changes.
+> documented, self-contained assumption; if the real API differs, only that file
+> changes.
 
 ---
 
@@ -246,20 +247,16 @@ referenced by name anywhere in the orchestration code.
 
 - New users get `FREE_TIER_CREDITS` (default 10) on first access.
 - `POST /v1/generations` reserves `count` credits via an **atomic
-  compare-and-decrement** (`creditsRemaining >= count`), so concurrent requests
-  can't overspend.
-- If the job fails and `REFUND_ON_FAILURE=true`, the worker refunds the reserved
-  credits.
+  compare-and-decrement** (`creditsRemaining >= count`), safe under concurrency.
+- If the job fails and `REFUND_ON_FAILURE=true`, the worker refunds the credits.
 - `GET /v1/me/entitlements` returns plan + remaining credits.
 
-RevenueCat drives plan changes. The webhook:
+RevenueCat drives plan changes via `POST /v1/webhooks/revenuecat`, which:
 
-1. Verifies a shared-secret `Authorization` header (from Secrets Manager).
+1. Verifies a shared-secret `Authorization` header (`REVENUECAT_WEBHOOK_AUTH`).
 2. Records `eventId` once in `webhook_events` for **idempotency** — duplicate
    deliveries are acknowledged but not re-applied.
-3. Maps `app_user_id → Firebase uid` and updates plan/credits by event type
-   (`INITIAL_PURCHASE`/`RENEWAL` → activate + grant; `EXPIRATION`/`BILLING_ISSUE`
-   → downgrade to free).
+3. Maps `app_user_id → Firebase uid` and updates plan/credits by event type.
 
 ---
 
@@ -268,127 +265,114 @@ RevenueCat drives plan changes. The webhook:
 - **Auth** on every non-webhook endpoint (Firebase ID token).
 - **Input validation** with zod on all payloads.
 - **Per-uid rate limiting** (fixed window in MongoDB; configurable).
-- **All secrets** in AWS Secrets Manager (Mongo URI, Firebase service account,
-  RevenueCat auth, provider keys).
-- **Private S3 buckets**, `BLOCK_ALL` public access, **TLS-enforced**,
-  **encrypted at rest** (SSE-S3). Access only via short-lived signed URLs.
+- **Config via environment variables** (12-factor); inject secrets through your
+  orchestrator's secret store. No secrets are committed.
+- **Private S3 buckets**, access only via short-lived signed URLs; encrypt at
+  rest via bucket default encryption.
 - **User-scoped prefixes** — uploads/results live under `{uid}/...`; the API
   rejects reference keys outside the caller's prefix.
-- **Retention** — uploads expire after 30 days, results after 90 days (S3
-  lifecycle rules); tune in `infra/lib/charmshot-stack.ts`.
+- **Retention** — enforce upload/result lifecycle expiry with S3 lifecycle rules
+  on the buckets (e.g. 30 days uploads, 90 days results).
 
 ---
 
 ## Observability
 
 - **Structured JSON logs** with `requestId`, `uid`, `jobId` bound per request.
-- **CloudWatch metrics** via Embedded Metric Format: `jobs_created`,
-  `jobs_succeeded`, `jobs_failed`, `provider_latency_ms` (+ `credits_reserved`,
-  `credits_refunded`, `rate_limited`).
-- **Alarms** on `jobs_failed` and DLQ depth.
+- **Metrics** emitted as structured `kind:"metric"` log lines (jobs_created,
+  jobs_succeeded, jobs_failed, provider_latency_ms, credits_*). A log shipper can
+  turn these into counters/timers; swap `src/shared/metrics.ts` for StatsD/OTEL
+  if desired.
 - **Retries + timeouts** on model calls (exponential backoff w/ jitter).
-- **DLQ** for messages that fail processing repeatedly.
+- **Health check** at `GET /health` (used by the Docker `HEALTHCHECK`).
 
 ---
 
 ## Local development
 
-Requirements: Node.js 22.x, a MongoDB you can reach (local or Atlas).
+Requirements: Node.js 22.x and a MongoDB you can reach.
+
+### Option A — Docker Compose (server + MongoDB)
 
 ```bash
-# 1. Install
-npm install
-
-# 2. Configure
-cp .env.example .env
-#   set MONGODB_URI (local mongo is fine), and for real auth set
-#   FIREBASE_PROJECT_ID (+ optionally a service-account secret).
-
-# 3. Typecheck & test
-npm run typecheck
-npm test
-
-# 4. Run the local API (mirrors the API Gateway → router contract)
-npm run dev:api      # http://localhost:3000
-curl localhost:3000/health
+cp .env.example .env          # fill in S3 creds/buckets, etc.
+docker compose up --build
+curl localhost:8080/health    # {"status":"ok"}
 ```
 
-Notes for local mode:
+### Option B — run the server directly
 
-- Without AWS credentials, S3/SQS calls won't reach AWS — use the unit tests or
-  point at LocalStack if you need full local AWS emulation.
-- The RevenueCat webhook secret falls back to `REVENUECAT_WEBHOOK_AUTH`.
-- Provider keys fall back to `NANO_BANANA_API_KEY`.
+```bash
+npm install
+cp .env.example .env          # set MONGODB_URI etc.
+npm run build && node --env-file=.env dist/server/index.js
+# or hot-reload during development:
+npm run dev                   # tsx watch src/server/index.ts
+```
+
+Notes:
+
+- S3 is required for uploads/results. Use real AWS creds, or run MinIO/LocalStack
+  and set `S3_ENDPOINT` + `S3_FORCE_PATH_STYLE=true` (see `docker-compose.yml`).
+- Without a Firebase service account, ID tokens are verified against Google's
+  public JWKS using `FIREBASE_PROJECT_ID` alone.
 
 ---
 
-## Configuration & secrets
+## Configuration
 
-Non-secret config is via environment variables — see [`.env.example`](.env.example)
-for the full annotated list. In production the Lambdas read these from their
-environment (set by CDK) and pull **secrets** from Secrets Manager:
-
-| Secret name (CDK) | Shape |
-|-------------------|-------|
-| `charmshot/mongodb` | `{ "uri": "mongodb+srv://..." }` |
-| `charmshot/firebase-service-account` | Firebase service-account JSON |
-| `charmshot/revenuecat` | `{ "authHeader": "<webhook auth value>" }` |
-| `charmshot/providers` | `{ "nanoBananaApiKey": "..." }` |
-
-The CDK stack creates these secrets empty; populate them after the first deploy:
-
-```bash
-aws secretsmanager put-secret-value --secret-id charmshot/mongodb \
-  --secret-string '{"uri":"mongodb+srv://user:pass@cluster/charmshot"}'
-```
+All configuration is via environment variables — see [`.env.example`](.env.example)
+for the full annotated list. Key groups: server (`PORT`, `HOST`), worker
+(`WORKER_ENABLED`, `WORKER_CONCURRENCY`), Mongo (`MONGODB_URI`,
+`MONGODB_DB_NAME`), S3 (`AWS_*`, `UPLOADS_BUCKET`, `RESULTS_BUCKET`,
+`S3_ENDPOINT`), Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`),
+RevenueCat (`REVENUECAT_WEBHOOK_AUTH`), providers (`NANO_BANANA_API_KEY`,
+`DEFAULT_MODEL_ID`, `FALLBACK_MODEL_ID`), and credits/rate-limit settings.
 
 ---
 
 ## Deployment
 
-Infrastructure is AWS CDK (TypeScript) in `infra/`.
+The service ships as a single container image (`Dockerfile`, multi-stage).
 
 ```bash
-cd infra
-npm install                # (also covered by root `npm install` workspaces)
-npx cdk bootstrap          # first time per account/region
-npm run synth              # inspect the CloudFormation
-npm run deploy             # deploy the stack
+docker build -t charmshot-backend:latest .
+docker run -p 8080:8080 --env-file .env charmshot-backend:latest
 ```
 
-The stack provisions:
-
-- HTTP API + routes wired to the API Lambda
-- API Lambda and SQS Worker Lambda (`NodejsFunction`, esbuild-bundled, Node 22)
-- SQS queue + DLQ (redrive after 3 receives)
-- Two private, encrypted S3 buckets (uploads, results) with CORS + lifecycle
-- Secrets Manager secrets (empty — populate post-deploy)
-- Least-privilege IAM (API can presign + enqueue + read needed secrets; worker
-  can read references, write results, consume the queue, read its secrets)
-- CloudWatch alarms (`jobs_failed`, DLQ depth)
-
-After deploy, set secret values (see above). The API endpoint is exported as
-`CharmShotApiEndpoint`.
+Run it anywhere that runs containers (ECS/Fargate, Kubernetes, Fly.io, a VM,
+etc.). Provide configuration via environment variables / your platform's secret
+manager. The container exposes port 8080 and has a built-in `/health` healthcheck.
+Front it with your platform's load balancer / TLS terminator. Point it at a
+managed MongoDB (e.g. Atlas) and an S3 bucket pair with private access + default
+encryption + lifecycle retention rules.
 
 ---
 
 ## Testing
 
 ```bash
-npm test            # run once
-npm run test:watch  # watch mode
+npm run test:unit          # unit tests (no external deps)
+npm run test:integration   # integration tests (real MongoDB; auto-skip if none)
+npm run test:coverage      # unit tests with coverage
+npm run test:all           # unit then integration
 ```
 
-Covered:
+- **Unit** (`tests/unit/**`) — no external dependencies; boundaries mocked. Covers
+  shared utils, validation, presets, provider factory/strategy, NanoBanana
+  provider, services, HTTP responses, router, and the Fastify adapter.
+- **Integration** (`tests/integration/**`) — exercise router → services →
+  repositories against a **real MongoDB** (`MONGODB_URI`, default
+  `mongodb://localhost:27017`); only S3/Firebase boundaries are mocked. They
+  auto-skip when no MongoDB is reachable and run for real in CI.
 
-- **Firebase auth verification** — `tests/auth.test.ts` (bearer parsing, verify +
-  upsert, failure propagation)
-- **Presigned upload flow** — `tests/upload.test.ts` (user-scoped keys, file-name
-  sanitisation, content-type/size validation)
-- **Job creation & status transitions** — `tests/generation.test.ts`
-- **Model factory selection & fallback** — `tests/factory.test.ts`
-- **RevenueCat webhook idempotency** — `tests/webhook.test.ts`
-- **Credit reservation / refund** — `tests/credits.test.ts` (atomic
-  compare-and-decrement, concurrency, refunds)
+### CI
 
-Tests mock the AWS/DB/Firebase boundaries, so no live infrastructure is needed.
+`.github/workflows/ci.yml` runs on pull requests and pushes:
+
+| Job | What |
+|-----|------|
+| Lint & Typecheck | `tsc --noEmit` |
+| Unit Tests | `npm run test:coverage` + coverage artifact |
+| Integration Tests | `npm run test:integration` against a `mongo:7` service container |
+| Docker Build | builds the production image |

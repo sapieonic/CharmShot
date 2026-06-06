@@ -2,8 +2,8 @@
  * RevenueCat webhook service.
  *
  * - Verifies authenticity by comparing the incoming Authorization header to a
- *   shared secret stored in Secrets Manager (RevenueCat lets you configure an
- *   arbitrary Authorization header value on the webhook).
+ *   shared secret configured via the REVENUECAT_WEBHOOK_AUTH env var (RevenueCat
+ *   lets you set an arbitrary Authorization header value on the webhook).
  * - Idempotent: each event id is recorded once in webhook_events; duplicate
  *   deliveries are acknowledged but not re-applied.
  * - Maps RevenueCat app_user_id -> Firebase uid and updates entitlements,
@@ -12,7 +12,6 @@
 
 import { timingSafeEqual } from 'node:crypto';
 import { config } from '../config/env';
-import { resolveSecretValue } from '../aws/secrets';
 import { hashPayload } from '../shared/ids';
 import { Errors } from '../shared/errors';
 import type { Logger } from '../shared/logger';
@@ -39,12 +38,10 @@ function resolvePlan(event: RevenueCatWebhook['event']): Plan {
 }
 
 export async function verifyWebhookAuth(authorizationHeader: string | undefined): Promise<void> {
-  const expected = await resolveSecretValue({
-    secretArn: config.revenuecat.secretArn,
-    jsonKey: 'authHeader',
-    envFallback: config.revenuecat.webhookAuthEnv,
-    label: 'RevenueCat webhook auth',
-  });
+  const expected = config.revenuecat.webhookAuth;
+  if (!expected) {
+    throw Errors.internal('REVENUECAT_WEBHOOK_AUTH is not configured');
+  }
   const provided = authorizationHeader ?? '';
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);

@@ -11,7 +11,6 @@
  */
 
 import { config } from '../config/env';
-import { resolveSecretValue } from '../aws/secrets';
 import { Errors } from '../shared/errors';
 import { Logger, rootLogger } from '../shared/logger';
 import { withRetry } from '../shared/retry';
@@ -36,12 +35,10 @@ export class NanoBananaProvider implements ImageProvider {
 
   private async getApiKey(): Promise<string> {
     if (this.apiKey) return this.apiKey;
-    this.apiKey = await resolveSecretValue({
-      secretArn: config.providers.secretsArn,
-      jsonKey: 'nanoBananaApiKey',
-      envFallback: config.providers.nanoBananaApiKeyEnv,
-      label: 'Nano Banana API key',
-    });
+    if (!config.providers.nanoBananaApiKey) {
+      throw Errors.internal('NANO_BANANA_API_KEY is not configured');
+    }
+    this.apiKey = config.providers.nanoBananaApiKey;
     return this.apiKey;
   }
 

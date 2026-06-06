@@ -2,8 +2,10 @@
  * S3 access: presigned PUT URLs for uploads, presigned GET URLs for results,
  * and server-side object fetch/put used by the worker.
  *
- * All buckets are private and encrypted at rest (configured in CDK). Clients
- * never touch S3 directly except through short-lived signed URLs.
+ * S3 is the only external AWS dependency. Buckets are private and encrypted at
+ * rest; clients never touch S3 directly except through short-lived signed URLs.
+ * A custom endpoint (S3_ENDPOINT) can be set to point at an S3-compatible local
+ * server such as MinIO or LocalStack during development.
  */
 
 import { GetObjectCommand, PutObjectCommand, S3Client, type GetObjectCommandOutput } from '@aws-sdk/client-s3';
@@ -11,7 +13,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from '../config/env';
 import type { AllowedContentType } from '../validation/schemas';
 
-const client = new S3Client({ region: config.region });
+const client = new S3Client({
+  region: config.region,
+  ...(config.s3.endpoint ? { endpoint: config.s3.endpoint } : {}),
+  ...(config.s3.forcePathStyle ? { forcePathStyle: true } : {}),
+});
 
 /** Builds the user-scoped key for an uploaded reference image. */
 export function uploadKey(uid: string, jobScope: string, fileName: string): string {

@@ -1,11 +1,16 @@
 /**
- * CloudWatch metrics via the Embedded Metric Format (EMF).
+ * Lightweight application metrics.
  *
- * Writing EMF JSON to stdout lets CloudWatch automatically extract metrics from
- * the log stream without a synchronous PutMetricData call on the request path.
- * This keeps the hot path cheap while still surfacing:
+ * This service is not on Lambda/CloudWatch, so metrics are emitted as
+ * structured JSON log lines (one per metric) to stdout. A log shipper
+ * (Loki/ELK/Datadog/etc.) can parse `kind:"metric"` lines and turn them into
+ * counters/timers. Keeping the same emit API means call sites are unchanged if
+ * you later swap in a real metrics backend (StatsD, OTEL, Prometheus pushgw).
+ *
+ * Surfaced metrics:
  *   - jobs_created, jobs_succeeded, jobs_failed (counts)
  *   - provider_latency_ms (milliseconds)
+ *   - credits_reserved, credits_refunded, rate_limited
  */
 
 import { config } from '../config/env';
@@ -39,34 +44,26 @@ const UNIT_BY_METRIC: Record<MetricName, MetricUnit> = {
 };
 
 /**
- * Emit a single metric in EMF format. Dimensions are kept low-cardinality on
- * purpose (e.g. provider id, status) — never put uid/jobId in dimensions.
+ * Emit a single metric as a structured log line. Dimensions are kept
+ * low-cardinality on purpose (e.g. provider id, status) — never put uid/jobId
+ * in dimensions.
  */
 export function emitMetric(name: MetricName, value: number, opts: EmitOptions = {}): void {
   if (!config.metrics.enabled) return;
 
-  const unit = opts.unit ?? UNIT_BY_METRIC[name];
-  const dimensions = opts.dimensions ?? {};
-  const dimensionKeys = Object.keys(dimensions);
-
-  const emf = {
-    _aws: {
-      Timestamp: Date.now(),
-      CloudWatchMetrics: [
-        {
-          Namespace: config.metrics.namespace,
-          Dimensions: dimensionKeys.length > 0 ? [dimensionKeys] : [[]],
-          Metrics: [{ Name: name, Unit: unit }],
-        },
-      ],
-    },
-    [name]: value,
-    ...dimensions,
+  const line = {
+    kind: 'metric',
+    namespace: config.metrics.namespace,
+    metric: name,
+    value,
+    unit: opts.unit ?? UNIT_BY_METRIC[name],
+    time: new Date().toISOString(),
+    ...(opts.dimensions ?? {}),
     ...(opts.properties ?? {}),
   };
 
   try {
-    process.stdout.write(JSON.stringify(emf) + '\n');
+    process.stdout.write(JSON.stringify(line) + '\n');
   } catch (err) {
     rootLogger.warn('Failed to emit metric', { metric: name, error: String(err) });
   }

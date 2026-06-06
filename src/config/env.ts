@@ -1,10 +1,11 @@
 /**
  * Centralised, typed access to environment configuration.
  *
- * Only NON-SECRET configuration lives here. Actual secrets (Mongo URI,
- * Firebase service account, provider API keys, RevenueCat auth) are resolved
- * lazily at runtime from AWS Secrets Manager (see src/aws/secrets.ts), falling
- * back to env vars for local development.
+ * This service runs as a long-lived server (not Lambda). All configuration —
+ * including secrets — comes from environment variables (12-factor style). The
+ * only external AWS dependency is S3; there is no Secrets Manager, SQS, or API
+ * Gateway. For local development, load a .env file via your process manager or
+ * `node --env-file=.env`.
  */
 
 function str(name: string, fallback?: string): string {
@@ -39,10 +40,24 @@ export const config = {
   logLevel: optStr('LOG_LEVEL') ?? 'info',
   region: str('AWS_REGION', 'us-east-1'),
 
+  server: {
+    port: int('PORT', 8080),
+    host: optStr('HOST') ?? '0.0.0.0',
+    // Max JSON body size accepted by the HTTP server.
+    bodyLimitBytes: int('BODY_LIMIT_BYTES', 1024 * 1024),
+  },
+
+  // In-process background worker that runs generation jobs.
+  worker: {
+    // How many generation jobs to process concurrently in this process.
+    concurrency: int('WORKER_CONCURRENCY', 2),
+    // Run the worker inside the API server process (single deployable).
+    enabled: bool('WORKER_ENABLED', true),
+  },
+
   mongo: {
-    uriEnv: optStr('MONGODB_URI'),
+    uri: str('MONGODB_URI', 'mongodb://localhost:27017'),
     dbName: str('MONGODB_DB_NAME', 'charmshot'),
-    secretArn: optStr('MONGODB_SECRET_ARN'),
   },
 
   s3: {
@@ -51,25 +66,26 @@ export const config = {
     uploadUrlTtlSeconds: int('UPLOAD_URL_TTL_SECONDS', 900),
     resultUrlTtlSeconds: int('RESULT_URL_TTL_SECONDS', 900),
     maxUploadBytes: int('MAX_UPLOAD_BYTES', 10 * 1024 * 1024),
-  },
-
-  sqs: {
-    generationQueueUrl: optStr('GENERATION_QUEUE_URL'),
+    // Optional custom endpoint (e.g. MinIO/LocalStack) for local development.
+    endpoint: optStr('S3_ENDPOINT'),
+    // Path-style addressing is required by most S3-compatible local servers.
+    forcePathStyle: bool('S3_FORCE_PATH_STYLE', false),
   },
 
   firebase: {
     projectId: optStr('FIREBASE_PROJECT_ID') ?? 'charmshot-dev',
-    serviceAccountSecretArn: optStr('FIREBASE_SERVICE_ACCOUNT_SECRET_ARN'),
+    // Full service-account JSON as a string. If unset, the Admin SDK verifies
+    // ID tokens against Google's public JWKS using projectId alone.
+    serviceAccountJson: optStr('FIREBASE_SERVICE_ACCOUNT_JSON'),
   },
 
   revenuecat: {
-    secretArn: optStr('REVENUECAT_SECRET_ARN'),
-    webhookAuthEnv: optStr('REVENUECAT_WEBHOOK_AUTH'),
+    // Expected value of the Authorization header on incoming webhooks.
+    webhookAuth: optStr('REVENUECAT_WEBHOOK_AUTH'),
   },
 
   providers: {
-    secretsArn: optStr('PROVIDER_SECRETS_ARN'),
-    nanoBananaApiKeyEnv: optStr('NANO_BANANA_API_KEY'),
+    nanoBananaApiKey: optStr('NANO_BANANA_API_KEY'),
     nanoBananaBaseUrl: optStr('NANO_BANANA_BASE_URL') ?? 'https://api.nanobanana.example.com',
     defaultModelId: str('DEFAULT_MODEL_ID', 'nano-banana'),
     fallbackModelId: optStr('FALLBACK_MODEL_ID'),

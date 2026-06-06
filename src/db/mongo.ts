@@ -8,7 +8,6 @@
 
 import { MongoClient, type Collection, type Db } from 'mongodb';
 import { config } from '../config/env';
-import { resolveSecretValue } from '../aws/secrets';
 import { rootLogger } from '../shared/logger';
 import type {
   AuditLogRecord,
@@ -29,24 +28,10 @@ export interface RateLimitRecord {
 let clientPromise: Promise<MongoClient> | null = null;
 let indexesEnsured = false;
 
-async function resolveUri(): Promise<string> {
-  if (config.mongo.secretArn) {
-    return resolveSecretValue({
-      secretArn: config.mongo.secretArn,
-      jsonKey: 'uri',
-      envFallback: config.mongo.uriEnv,
-      label: 'MongoDB URI',
-    });
-  }
-  if (config.mongo.uriEnv) return config.mongo.uriEnv;
-  throw new Error('No MongoDB connection string configured (set MONGODB_URI or MONGODB_SECRET_ARN)');
-}
-
 export async function getClient(): Promise<MongoClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
-      const uri = await resolveUri();
-      const client = new MongoClient(uri, {
+      const client = new MongoClient(config.mongo.uri, {
         maxPoolSize: 10,
         retryWrites: true,
         serverSelectionTimeoutMS: 8000,

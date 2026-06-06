@@ -14,7 +14,7 @@ const { reserveCredits, refundCredits, createJob, markFailed, findJobForUser, en
   }));
 vi.mock('../../../src/repositories/entitlementRepository', () => ({ reserveCredits, refundCredits }));
 vi.mock('../../../src/repositories/jobRepository', () => ({ createJob, markFailed, findJobForUser }));
-vi.mock('../../../src/aws/sqs', () => ({ enqueueGenerationJob }));
+vi.mock('../../../src/queue/jobQueue', () => ({ enqueueGenerationJob }));
 vi.mock('../../../src/repositories/auditLogRepository', () => ({ audit }));
 
 vi.mock('../../../src/aws/s3', async (importOriginal) => {
