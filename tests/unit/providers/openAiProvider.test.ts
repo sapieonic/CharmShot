@@ -155,6 +155,19 @@ describe('OpenAIProvider.generateImages', () => {
     }
   });
 
+  it('normalizes a "jpg" output format to "jpeg" on the wire and in the content type', async () => {
+    const fetchMock = vi.fn(async () => imageResponse([Buffer.from('jpg')]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const p = new OpenAIProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'm', outputFormat: 'jpg' });
+    const out = await p.generateImages({ ...params, count: 1 });
+
+    const form = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(form.get('output_format')).toBe('jpeg');
+    expect(out[0]?.contentType).toBe('image/jpeg');
+    expect(out[0]?.extension).toBe('jpg');
+  });
+
   it('honours an explicit size override regardless of aspect ratio', async () => {
     const fetchMock = vi.fn(async () => imageResponse([Buffer.from('png')]));
     vi.stubGlobal('fetch', fetchMock);

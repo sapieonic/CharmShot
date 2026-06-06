@@ -97,7 +97,7 @@ Key properties:
 │   ├── repositories/      # users, jobs, entitlements, webhook_events, audit
 │   ├── auth/              # Firebase ID token verification
 │   ├── providers/         # provider interface, factory/registry, strategy,
-│   │                      #   NanoBananaProvider
+│   │                      #   NanoBananaProvider, OpenAIProvider
 │   ├── presets/           # style presets w/ identity-preservation prompts
 │   ├── services/          # auth, upload, generation, entitlement, webhook
 │   ├── middleware/        # per-uid rate limiting
@@ -267,6 +267,19 @@ purely as `NanoBananaProvider` and is never referenced by name in orchestration.
 > `NANO_BANANA_API_KEY` (a Gemini API key), `NANO_BANANA_BASE_URL`,
 > `NANO_BANANA_MODEL`, and optionally `NANO_BANANA_IMAGE_SIZE`
 > (`512`/`1K`/`2K`/`4K`, a Nano Banana 2 feature).
+
+> **OpenAI** (`OpenAIProvider`, id `openai`) calls the real OpenAI Images API
+> (`gpt-image-1`). When reference selfies are present it uses the **image edits**
+> endpoint (`POST {baseUrl}/images/edits`, `multipart/form-data`, selfies sent as
+> `image[]`) for identity preservation; with no references it falls back to
+> text-to-image **generations** (`POST {baseUrl}/images/generations`). Unlike Nano
+> Banana it returns all `n` images in one call. The aspect ratio is mapped to the
+> model's supported sizes (square / landscape / portrait), and there is no `seed`.
+> Configure it with `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_IMAGE_MODEL`, and
+> optionally `OPENAI_IMAGE_QUALITY`, `OPENAI_IMAGE_OUTPUT_FORMAT`, and
+> `OPENAI_IMAGE_SIZE`. **Which provider runs jobs is env-controlled** via
+> `DEFAULT_MODEL_ID` (e.g. `openai`) / `FALLBACK_MODEL_ID`, or per request via the
+> `modelId` field — moving to a user preference later.
 
 ---
 

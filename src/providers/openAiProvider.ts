@@ -108,7 +108,7 @@ export class OpenAIProvider implements ImageProvider {
       form.append('n', String(count));
       form.append('size', this.size(params.aspectRatio));
       if (this.quality) form.append('quality', this.quality);
-      if (this.outputFormat) form.append('output_format', this.outputFormat);
+      if (this.outputFormat) form.append('output_format', normalizeFormat(this.outputFormat));
       params.referenceImages.slice(0, MAX_INPUT_IMAGES).forEach((ref, i) => {
         const ext = extensionFor(ref.contentType);
         form.append('image[]', new Blob([new Uint8Array(ref.data)], { type: ref.contentType }), `reference-${i}.${ext}`);
@@ -122,7 +122,7 @@ export class OpenAIProvider implements ImageProvider {
         n: count,
         size: this.size(params.aspectRatio),
         ...(this.quality ? { quality: this.quality } : {}),
-        ...(this.outputFormat ? { output_format: this.outputFormat } : {}),
+        ...(this.outputFormat ? { output_format: normalizeFormat(this.outputFormat) } : {}),
       });
     }
 
@@ -178,7 +178,11 @@ function sizeForAspectRatio(aspectRatio: string): string {
   return w > h ? '1536x1024' : '1024x1536';
 }
 
-/** OpenAI uses "jpeg" for JPEG output; normalize so content types are valid. */
+/**
+ * OpenAI's `output_format` accepts only "png" | "jpeg" | "webp". Normalize a
+ * configured value (e.g. "jpg") so both the request we send and the derived
+ * content type are valid.
+ */
 function normalizeFormat(format: string): string {
   const f = format.toLowerCase();
   return f === 'jpg' ? 'jpeg' : f;
