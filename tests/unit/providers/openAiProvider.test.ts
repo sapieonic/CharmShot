@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpenAIProvider } from '../../../src/providers/openAiProvider';
+import { config } from '../../../src/config/env';
 import { AppError } from '../../../src/shared/errors';
 import type { GenerateImagesParams } from '../../../src/providers/types';
 
@@ -100,6 +101,58 @@ describe('OpenAIProvider.generateImages', () => {
     expect(form.get('output_format')).toBe('jpeg');
     expect(out[0]?.contentType).toBe('image/jpeg');
     expect(out[0]?.extension).toBe('jpg');
+  });
+
+  it.each([
+    ['1:1', '1024x1024'],
+    ['16:9', '1536x1024'],
+    ['9:16', '1024x1536'],
+    ['3:4', '1024x1536'],
+    ['', 'auto'],
+    ['weird', 'auto'],
+  ])('maps aspect ratio %s → size %s', async (aspectRatio, expected) => {
+    const fetchMock = vi.fn(async () => imageResponse([Buffer.from('png')]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider().generateImages({ ...params, count: 1, aspectRatio });
+
+    const form = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(form.get('size')).toBe(expected);
+  });
+
+  it('caps the number of reference images sent to the model at 16', async () => {
+    const fetchMock = vi.fn(async () => imageResponse([Buffer.from('png')]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const refs = Array.from({ length: 20 }, () => ({ data: Buffer.from('ref'), contentType: 'image/png' }));
+    await provider().generateImages({ ...params, count: 1, referenceImages: refs });
+
+    const form = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(form.getAll('image[]')).toHaveLength(16);
+  });
+
+  it('clamps a count below 1 up to a single image', async () => {
+    const fetchMock = vi.fn(async () => imageResponse([Buffer.from('png')]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider().generateImages({ ...params, count: 0 });
+
+    const form = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(form.get('n')).toBe('1');
+  });
+
+  it('throws INTERNAL when no API key is configured', async () => {
+    const original = config.providers.openaiApiKey;
+    (config.providers as { openaiApiKey?: string }).openaiApiKey = undefined;
+    try {
+      // No apiKey injected → falls through to (empty) config.
+      const p = new OpenAIProvider({ baseUrl: 'https://x', model: 'gpt-image-1' });
+      const err = await p.generateImages({ ...params, count: 1 }).catch((e) => e);
+      expect((err as AppError).code).toBe('INTERNAL');
+      expect((err as Error).message).toMatch(/OPENAI_API_KEY/);
+    } finally {
+      (config.providers as { openaiApiKey?: string }).openaiApiKey = original;
+    }
   });
 
   it('honours an explicit size override regardless of aspect ratio', async () => {
