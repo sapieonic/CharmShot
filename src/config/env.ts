@@ -94,6 +94,21 @@ export const config = {
     // Optional output resolution for Nano Banana 2: "512", "1K", "2K", or "4K".
     // Left unset, the model picks its default (~1K).
     nanoBananaImageSize: optStr('NANO_BANANA_IMAGE_SIZE'),
+
+    // OpenAI Images API (gpt-image-1). The API key is a standard OpenAI key.
+    // When reference selfies are present we call the image *edits* endpoint for
+    // identity preservation; otherwise text-to-image *generations*.
+    openaiApiKey: optStr('OPENAI_API_KEY'),
+    openaiBaseUrl: optStr('OPENAI_BASE_URL') ?? 'https://api.openai.com/v1',
+    openaiModel: optStr('OPENAI_IMAGE_MODEL') ?? 'gpt-image-1',
+    // Optional gpt-image-1 quality: "low", "medium", "high", or "auto".
+    openaiImageQuality: optStr('OPENAI_IMAGE_QUALITY'),
+    // Optional output format: "png" (default), "jpeg", or "webp".
+    openaiImageOutputFormat: optStr('OPENAI_IMAGE_OUTPUT_FORMAT'),
+    // Optional fixed size ("1024x1024" | "1536x1024" | "1024x1536" | "auto").
+    // Left unset, size is derived from the request's aspect ratio.
+    openaiImageSize: optStr('OPENAI_IMAGE_SIZE'),
+
     defaultModelId: str('DEFAULT_MODEL_ID', 'nano-banana'),
     fallbackModelId: optStr('FALLBACK_MODEL_ID'),
   },
