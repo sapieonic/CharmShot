@@ -22,7 +22,8 @@
     "openapi:export": "tsx scripts/export-openapi.ts",
     "openapi:check": "tsx scripts/check-openapi.ts",
     "release": "semantic-release",
-    "commitlint": "commitlint"
+    "commitlint": "commitlint",
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.4",
@@ -48,6 +49,7 @@
     "@vitest/coverage-v8": "^2.1.1",
     "conventional-changelog-conventionalcommits": "^8.0.0",
     "esbuild": "^0.24.0",
+    "husky": "^9.1.7",
     "semantic-release": "^24.2.9",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",

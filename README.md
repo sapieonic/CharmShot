@@ -396,8 +396,13 @@ feat!: change /v1/generations response shape   # major bump
 Triggering honors the "CI on PRs only" policy: the release runs off the
 `pull_request` merged event (no `push` triggers). `package.json` carries
 `0.0.0-development` on `main`; the real version lives in the git tags / GitHub
-Releases. Validate messages locally with `npm run commitlint` (config in
-`commitlint.config.cjs`).
+Releases.
+
+A Husky **`commit-msg` hook** runs commitlint on every local commit so badly
+formatted messages are rejected before they're created (config in
+`commitlint.config.cjs`). The hook is installed automatically by the `prepare`
+script on `npm install`; you can also check a message manually with
+`npm run commitlint`.
 
 ## Testing
 
