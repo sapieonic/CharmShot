@@ -5,12 +5,14 @@
 
 import { registerModelProvider } from './factory';
 import { NanoBananaProvider } from './nanoBananaProvider';
+import { OpenAIProvider } from './openAiProvider';
 
 let bootstrapped = false;
 
 export function bootstrapProviders(): void {
   if (bootstrapped) return;
   registerModelProvider('nano-banana', new NanoBananaProvider());
+  registerModelProvider('openai', new OpenAIProvider());
   // registerModelProvider('future-model', new FutureModelProvider());
   bootstrapped = true;
 }
