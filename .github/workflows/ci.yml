@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck (tsc --noEmit)
         run: npm run typecheck
 
+      - name: Check OpenAPI spec is in sync
+        run: npm run openapi:check
+
   unit-tests:
     name: Unit Tests (coverage)
     runs-on: ubuntu-latest
