@@ -109,7 +109,7 @@ Key properties:
 ├── tests/                 # vitest: tests/unit/** and tests/integration/**
 ├── Dockerfile             # multi-stage production image
 ├── docker-compose.yml     # production-like local stack (built image + mongo)
-├── dev-docker.yaml        # dev stack: hot reload (tsx watch) + mongo
+├── dev-docker.yaml        # dev dependencies only (mongo); run the server on the host
 ├── .env.example
 └── README.md
 ```
@@ -323,33 +323,58 @@ The repo ships two Compose files for different goals:
 
 | File | Goal | Source | MongoDB |
 |------|------|--------|---------|
-| `dev-docker.yaml` | **Development** — hot reload, `./src` mounted | `tsx watch` (no build step) | bundled `mongo:7` |
-| `docker-compose.yml` | **Production-like** — runs the built image | multi-stage `Dockerfile` | bundled `mongo:7` |
+| `dev-docker.yaml` | **Development** — dependencies only (MongoDB); run the server on your host | host `npm run dev` (`tsx watch`) | bundled `mongo:7` |
+| `docker-compose.yml` | **Production-like** — runs the built image in a container | multi-stage `Dockerfile` | bundled `mongo:7` |
 
-### Option A — Dev stack with hot reload (`dev-docker.yaml`)
+### Option A — Dev dependencies in Docker, server on your host (`dev-docker.yaml`)
 
-The recommended day-to-day setup: runs the server with `tsx watch` and a
-bundled MongoDB. Your `./src` is mounted into the container, so editing a file
-restarts the server automatically — no rebuild needed.
-
-S3 is a **real (dev) bucket**, so provide AWS credentials and bucket names via
-your shell or a `.env` file next to the compose file. You can create the dev
-buckets with the Serverless template in this repo (`npx serverless deploy
---stage dev`), then set `UPLOADS_BUCKET` / `RESULTS_BUCKET` to its outputs.
+The recommended day-to-day setup. `dev-docker.yaml` runs **only the
+dependencies** (currently just MongoDB) in Docker; you run the server itself on
+your host with `npm run dev`, which gives you native hot reload and easy
+debugging while talking to the containerized Mongo.
 
 ```bash
-# Provide S3 access (shell exports shown; a .env beside the file also works)
-export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
-export UPLOADS_BUCKET=charmshot-uploads-dev RESULTS_BUCKET=charmshot-results-dev
+# 1. Start the dependencies (MongoDB on localhost:27017) in the background.
+docker compose -f dev-docker.yaml up -d
 
-docker compose -f dev-docker.yaml up --build
+# 2. Configure your local .env (see below), then run the server on your host.
+npm install
+npm run dev                   # tsx watch src/server/index.ts
 curl localhost:8080/health    # {"status":"ok"}
 ```
 
-Edit files under `./src` and the server reloads. Stop with `Ctrl+C`;
-`docker compose -f dev-docker.yaml down -v` also removes the Mongo data volume.
-Auth/provider/billing values default to dev placeholders (see the file header)
-and can be overridden via your shell or `.env`.
+Create your local `.env` from the example and point it at the Dockerized Mongo:
+
+```bash
+cp .env.example .env
+```
+
+The key value is the Mongo URL — because the server runs on your host (not in
+the Compose network), use `localhost`, not the `mongo` service name:
+
+```dotenv
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB_NAME=charmshot_dev
+```
+
+S3 is a **real (dev) bucket**, so also set AWS credentials and bucket names in
+`.env`. You can create the dev buckets with the Serverless template in this repo
+(`npx serverless deploy --stage dev`), then set `UPLOADS_BUCKET` /
+`RESULTS_BUCKET` to its outputs:
+
+```dotenv
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+UPLOADS_BUCKET=charmshot-uploads-dev
+RESULTS_BUCKET=charmshot-results-dev
+```
+
+Edit files under `./src` and the host server reloads automatically. Stop the
+server with `Ctrl+C`; stop MongoDB with `docker compose -f dev-docker.yaml
+down` (add `-v` to also remove the Mongo data volume). Auth/provider/billing
+values default to dev placeholders (see `.env.example`) and can be overridden
+in `.env`.
 
 ### Option B — Production-like Compose (`docker-compose.yml`)
 

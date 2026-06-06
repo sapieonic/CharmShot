@@ -1,69 +1,27 @@
 # ============================================================================
-# CharmShot — DEVELOPMENT stack (hot reload)
+# CharmShot — DEVELOPMENT dependencies
 #
-# A local environment for developing the app:
-#   - app   : the server with live reload (tsx watch); your ./src is mounted in
-#   - mongo : MongoDB for application state
+# This stack runs only the *dependencies* the app needs locally — currently
+# just MongoDB. The server itself is NOT started here; you run it on your host
+# (`npm run dev`) so you get fast, native hot reload and easy debugging while
+# talking to the containerized Mongo.
 #
-# S3 is a REAL (dev) bucket — provide AWS credentials and bucket names via your
-# shell or a .env file next to this compose file. You can create the dev buckets
-# with the Serverless template in this repo, e.g.:
-#     npx serverless deploy --stage dev
-# then set UPLOADS_BUCKET / RESULTS_BUCKET to the bucket names it outputs.
+#   - mongo : MongoDB for application state (exposed on localhost:27017)
+#
+# S3 is a REAL (dev) bucket — provide AWS credentials and bucket names to the
+# host process via a `.env` file or your shell (see README "Local development").
 #
 # Usage:
-#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
-#   export UPLOADS_BUCKET=charmshot-uploads-dev RESULTS_BUCKET=charmshot-results-dev
-#   docker compose -f dev-docker.yaml up --build
+#   docker compose -f dev-docker.yaml up -d        # start MongoDB
+#   npm run dev                                     # run the server on the host
 #   # API: http://localhost:8080
 #
-# Edit files under ./src and the server restarts automatically. Stop with Ctrl+C;
-# `docker compose -f dev-docker.yaml down -v` also removes the mongo data volume.
+# Point the host server at this Mongo with MONGODB_URI=mongodb://localhost:27017
+# in your local `.env`. Stop with `docker compose -f dev-docker.yaml down`;
+# add `-v` to also remove the Mongo data volume.
 # ============================================================================
 
 services:
-  app:
-    image: node:22-slim
-    working_dir: /app
-    # Install deps inside the container, then run the hot-reloading dev server.
-    command: sh -c "npm install && npm run dev"
-    ports:
-      - '8080:8080'
-    environment:
-      NODE_ENV: development
-      LOG_LEVEL: debug
-      PORT: '8080'
-      HOST: 0.0.0.0
-      # In-process background worker
-      WORKER_ENABLED: 'true'
-      WORKER_CONCURRENCY: '2'
-      # MongoDB
-      MONGODB_URI: mongodb://mongo:27017
-      MONGODB_DB_NAME: charmshot_dev
-      # S3 — real dev bucket. Credentials/bucket names come from your shell/.env.
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
-      UPLOADS_BUCKET: ${UPLOADS_BUCKET:-charmshot-uploads-dev}
-      RESULTS_BUCKET: ${RESULTS_BUCKET:-charmshot-results-dev}
-      # Auth / providers / billing — dev placeholders. Without a Firebase service
-      # account, ID tokens are verified against Google's public JWKS using the
-      # project id. Override via a local .env or your shell as needed.
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-charmshot-dev}
-      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
-      NANO_BANANA_API_KEY: ${NANO_BANANA_API_KEY:-dev-nano-banana-key}
-      REVENUECAT_WEBHOOK_AUTH: ${REVENUECAT_WEBHOOK_AUTH:-dev-revenuecat-secret}
-    volumes:
-      # Live-mount the source for hot reload...
-      - .:/app
-      # ...but keep the container's node_modules (avoids host/Linux mismatch and
-      # stops the host directory from shadowing installed deps).
-      - app-node-modules:/app/node_modules
-    depends_on:
-      mongo:
-        condition: service_healthy
-
   mongo:
     image: mongo:7
     ports:
@@ -78,4 +36,3 @@ services:
 
 volumes:
   mongo-data:
-  app-node-modules:
