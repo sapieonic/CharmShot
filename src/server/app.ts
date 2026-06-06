@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config/env';
 import { dispatch } from '../api/router';
 import { bootstrapProviders } from '../providers';
+import { registerDocs } from '../openapi/plugin';
 import type { HttpRequest } from '../http/apiTypes';
 
 // Route templates so we can extract path parameters (e.g. {jobId}) consistently
@@ -102,6 +103,9 @@ export function buildApp(): FastifyInstance {
   for (const route of ROUTES) {
     app.route({ method: route.method, url: route.path, handler });
   }
+
+  // API documentation: Swagger UI at /docs and the raw spec at /openapi.json.
+  registerDocs(app);
 
   // Fallback: route unknown paths through the router so it returns the
   // consistent 404 error envelope.

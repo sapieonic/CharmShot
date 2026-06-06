@@ -194,6 +194,26 @@ Result URLs are short-lived presigned GETs; S3 objects are never public.
 
 ---
 
+## API documentation (Swagger / OpenAPI)
+
+Interactive docs are generated from the **same zod schemas** used for request
+validation, so the published contract can't drift from the code.
+
+- **Swagger UI:** `GET /docs` (try-it-out enabled)
+- **Raw spec:** `GET /openapi.json` (OpenAPI 3.1)
+- **Committed spec files:** [`docs/openapi.json`](docs/openapi.json) and
+  [`docs/openapi.yaml`](docs/openapi.yaml) for client/codegen tooling
+
+```bash
+npm run openapi:export   # regenerate docs/openapi.{json,yaml}
+npm run openapi:check    # CI fails if the committed spec is stale
+```
+
+The spec is built in `src/openapi/document.ts` (via `@asteasolutions/zod-to-openapi`)
+and served by `@fastify/swagger` + `@fastify/swagger-ui`. To add/adjust an
+endpoint's docs, update its zod schema and the matching `registerPath(...)` entry,
+then run `npm run openapi:export`.
+
 ## Data model
 
 MongoDB holds all application state. Collections & key indexes:
@@ -372,7 +392,7 @@ npm run test:all           # unit then integration
 
 | Job | What |
 |-----|------|
-| Lint & Typecheck | `tsc --noEmit` |
+| Lint & Typecheck | `tsc --noEmit` + OpenAPI spec sync check |
 | Unit Tests | `npm run test:coverage` + coverage artifact |
 | Integration Tests | `npm run test:integration` against a `mongo:7` service container |
 | Docker Build | builds the production image |
