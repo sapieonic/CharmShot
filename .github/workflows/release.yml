@@ -48,4 +48,10 @@ jobs:
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable Husky git hooks. semantic-release's @semantic-release/git
+          # makes the "chore(release): x.y.z" commit, whose body is the generated
+          # CHANGELOG (long URL lines). The commit-msg hook would run commitlint
+          # and fail on footer-max-line-length. Hooks are for local authoring;
+          # the release commit is machine-generated, so skip them in CI.
+          HUSKY: 0
         run: npx semantic-release
