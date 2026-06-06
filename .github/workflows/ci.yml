@@ -14,6 +14,33 @@ permissions:
   contents: read
 
 jobs:
+  # Detect whether anything that can affect test outcomes changed. The test jobs
+  # below gate on this so doc-only / workflow-only PRs skip the (slow) unit and
+  # integration suites. Beyond src/ and tests/, a dependency bump or a change to
+  # the test/build config can break tests, so those files count as code too.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vitest.config.ts'
+              - 'vitest.integration.config.ts'
+              - 'tsconfig.json'
+
   lint-typecheck:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
@@ -38,6 +65,8 @@ jobs:
 
   unit-tests:
     name: Unit Tests (coverage)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -64,6 +93,8 @@ jobs:
 
   integration-tests:
     name: Integration Tests (MongoDB)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Real MongoDB provided as a service container, reachable at
     # mongodb://localhost:27017 so the integration suites execute (not skip).
@@ -102,6 +133,13 @@ jobs:
     # Only build the image once the code is known-good: gate on lint/typecheck,
     # unit, and integration tests so we don't burn a Docker build on a red PR.
     needs: [lint-typecheck, unit-tests, integration-tests]
+    # Tests are skipped on doc-only PRs; treat "skipped" as non-blocking and only
+    # bail on an actual failure (default success() would skip us after a skip).
+    if: >-
+      always() &&
+      needs.lint-typecheck.result == 'success' &&
+      needs.unit-tests.result != 'failure' &&
+      needs.integration-tests.result != 'failure'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
