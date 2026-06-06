@@ -1,28 +1,24 @@
 # ============================================================================
 # CharmShot — DEVELOPMENT stack (hot reload)
 #
-# A batteries-included local environment for developing the app:
-#   - app    : the server with live reload (tsx watch); your ./src is mounted in
-#   - mongo  : MongoDB for application state
-#   - minio  : S3-compatible object storage (so you can develop fully offline)
-#   - createbuckets : one-shot job that creates the uploads/results buckets
+# A local environment for developing the app:
+#   - app   : the server with live reload (tsx watch); your ./src is mounted in
+#   - mongo : MongoDB for application state
+#
+# S3 is a REAL (dev) bucket — provide AWS credentials and bucket names via your
+# shell or a .env file next to this compose file. You can create the dev buckets
+# with the Serverless template in this repo, e.g.:
+#     npx serverless deploy --stage dev
+# then set UPLOADS_BUCKET / RESULTS_BUCKET to the bucket names it outputs.
 #
 # Usage:
+#   export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
+#   export UPLOADS_BUCKET=charmshot-uploads-dev RESULTS_BUCKET=charmshot-results-dev
 #   docker compose -f dev-docker.yaml up --build
-#   # API:           http://localhost:8080   (Swagger UI at /docs if on a branch
-#   #                                          that has it)
-#   # MinIO console: http://localhost:9001    (minioadmin / minioadmin)
+#   # API: http://localhost:8080
 #
 # Edit files under ./src and the server restarts automatically. Stop with Ctrl+C;
-# `docker compose -f dev-docker.yaml down -v` also removes the data volumes.
-#
-# Note on presigned URLs + MinIO: the server signs URLs using S3_ENDPOINT. It is
-# set to http://minio:9000 so the server (inside the compose network) can reach
-# it. To OPEN those presigned URLs from your host browser, add this line to your
-# /etc/hosts so the same hostname resolves on the host too:
-#     127.0.0.1   minio
-# (MinIO's API port 9000 is published below.) Alternatively, point S3_* at a real
-# AWS account and drop the minio/createbuckets services.
+# `docker compose -f dev-docker.yaml down -v` also removes the mongo data volume.
 # ============================================================================
 
 services:
@@ -44,14 +40,13 @@ services:
       # MongoDB
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB_NAME: charmshot_dev
-      # S3 via MinIO (see the /etc/hosts note above for presigned URLs)
-      AWS_REGION: us-east-1
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      S3_ENDPOINT: http://minio:9000
-      S3_FORCE_PATH_STYLE: 'true'
-      UPLOADS_BUCKET: charmshot-uploads
-      RESULTS_BUCKET: charmshot-results
+      # S3 — real dev bucket. Credentials/bucket names come from your shell/.env.
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      UPLOADS_BUCKET: ${UPLOADS_BUCKET:-charmshot-uploads-dev}
+      RESULTS_BUCKET: ${RESULTS_BUCKET:-charmshot-results-dev}
       # Auth / providers / billing — dev placeholders. Without a Firebase service
       # account, ID tokens are verified against Google's public JWKS using the
       # project id. Override via a local .env or your shell as needed.
@@ -68,8 +63,6 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
-      createbuckets:
-        condition: service_completed_successfully
 
   mongo:
     image: mongo:7
@@ -83,40 +76,6 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    ports:
-      - '9000:9000' # S3 API
-      - '9001:9001' # web console
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  # One-shot: wait for MinIO, then create the two buckets the app expects.
-  createbuckets:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 minioadmin minioadmin; do
-        echo 'waiting for minio...'; sleep 2;
-      done;
-      mc mb -p local/charmshot-uploads;
-      mc mb -p local/charmshot-results;
-      echo 'buckets ready';
-      "
-
 volumes:
   mongo-data:
-  minio-data:
   app-node-modules:
