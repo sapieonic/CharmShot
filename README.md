@@ -349,6 +349,36 @@ encryption + lifecycle retention rules.
 
 ---
 
+## Versioning & releases
+
+Versioning is automated from [Conventional Commits](https://www.conventionalcommits.org)
+via [semantic-release](https://semantic-release.gitbook.io). When a PR is merged
+into `main`, a release workflow:
+
+1. Reads the merged commits and computes the next [SemVer](https://semver.org):
+   `fix:` → patch, `feat:` → minor, `feat!:` / `BREAKING CHANGE:` → major.
+2. Updates `package.json` + `CHANGELOG.md` and commits them back (`[skip ci]`).
+3. Creates the git tag and a **GitHub Release** with generated notes.
+
+Commits with non-releasable types (`docs`, `chore`, `refactor`, `test`, `ci`,
+`build`, `style`) don't trigger a release.
+
+Because PRs are **squash-merged**, the **PR title** is the commit that lands on
+`main` — so it must be a valid Conventional Commit. The `PR Title` workflow
+enforces this on every PR. Examples:
+
+```
+feat: add weighted provider routing
+fix: refund credits when the worker times out
+feat!: change /v1/generations response shape   # major bump
+```
+
+Triggering honors the "CI on PRs only" policy: the release runs off the
+`pull_request` merged event (no `push` triggers). `package.json` carries
+`0.0.0-development` on `main`; the real version lives in the git tags / GitHub
+Releases. Validate messages locally with `npm run commitlint` (config in
+`commitlint.config.cjs`).
+
 ## Testing
 
 ```bash
