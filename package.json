@@ -1,0 +1,42 @@
+{
+  "name": "charmshot-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CharmShot - AI image generation backend (identity-preserving photo enhancement)",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "infra"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "dev:api": "tsx watch src/local/server.ts",
+    "cdk": "npm --workspace infra run cdk --",
+    "deploy": "npm --workspace infra run deploy",
+    "synth": "npm --workspace infra run synth"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.654.0",
+    "@aws-sdk/client-s3": "^3.654.0",
+    "@aws-sdk/client-secrets-manager": "^3.654.0",
+    "@aws-sdk/client-sqs": "^3.654.0",
+    "@aws-sdk/s3-request-presigner": "^3.654.0",
+    "firebase-admin": "^12.5.0",
+    "mongodb": "^6.9.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.7.4",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}
