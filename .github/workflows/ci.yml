@@ -99,6 +99,9 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
+    # Only build the image once the code is known-good: gate on lint/typecheck,
+    # unit, and integration tests so we don't burn a Docker build on a red PR.
+    needs: [lint-typecheck, unit-tests, integration-tests]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
