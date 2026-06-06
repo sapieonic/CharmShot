@@ -1,0 +1,170 @@
+# ============================================================================
+# CharmShot — S3 storage (Serverless Framework)
+#
+# Provisions the two private S3 buckets the CharmShot server uses:
+#   - uploads bucket  : reference selfies (presigned PUT)   -> UPLOADS_BUCKET
+#   - results bucket  : generated images  (presigned GET)   -> RESULTS_BUCKET
+#
+# The application itself runs as a long-lived container (see Dockerfile);
+# it is NOT deployed by this file. This service only manages storage so the
+# buckets can be created/updated independently of the app.
+#
+# Deploy:
+#   npx serverless deploy --stage prod --region us-east-1
+#   # or: serverless deploy --param="uploadsBucket=my-uploads" --param="resultsBucket=my-results"
+#
+# After deploy, set the server's UPLOADS_BUCKET / RESULTS_BUCKET env vars to the
+# bucket names shown in the stack Outputs.
+# ============================================================================
+
+service: charmshot-storage
+
+frameworkVersion: '>=3'
+
+provider:
+  name: aws
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  # Tag every resource for cost tracking / ownership.
+  stackTags:
+    app: charmshot
+    component: storage
+    managedBy: serverless
+
+# This service provisions infrastructure only — there are no Lambda functions.
+
+# Bucket names must be globally unique. Defaults include the stage and the
+# AWS account id; override with --param="uploadsBucket=..." / "resultsBucket=...".
+params:
+  default:
+    uploadsBucket: charmshot-uploads-${sls:stage}-${aws:accountId}
+    resultsBucket: charmshot-results-${sls:stage}-${aws:accountId}
+    # CORS origins allowed to PUT/GET via presigned URLs. Lock this down to your
+    # web/app origins in production, e.g. "https://app.charmshot.com".
+    corsOrigin: '*'
+    # Retention (days) before objects are auto-deleted by lifecycle rules.
+    uploadsRetentionDays: 30
+    resultsRetentionDays: 90
+
+resources:
+  Resources:
+    # ---- Uploads bucket (reference selfies) -------------------------------
+    UploadsBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        BucketName: ${param:uploadsBucket}
+        # Encrypt at rest with S3-managed keys (SSE-S3).
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+              BucketKeyEnabled: true
+        # No public access whatsoever; objects are reached only via signed URLs.
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
+        # Browsers PUT bytes directly to a presigned URL.
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods: [PUT]
+              AllowedOrigins: ['${param:corsOrigin}']
+              AllowedHeaders: ['*']
+              MaxAge: 3000
+        # Auto-expire raw uploads.
+        LifecycleConfiguration:
+          Rules:
+            - Id: expire-uploads
+              Status: Enabled
+              ExpirationInDays: ${param:uploadsRetentionDays}
+              AbortIncompleteMultipartUpload:
+                DaysAfterInitiation: 7
+
+    # ---- Results bucket (generated images) --------------------------------
+    ResultsBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        BucketName: ${param:resultsBucket}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+              BucketKeyEnabled: true
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
+        # Clients GET generated images via a presigned URL.
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods: [GET]
+              AllowedOrigins: ['${param:corsOrigin}']
+              AllowedHeaders: ['*']
+              MaxAge: 3000
+        LifecycleConfiguration:
+          Rules:
+            - Id: expire-results
+              Status: Enabled
+              ExpirationInDays: ${param:resultsRetentionDays}
+
+    # ---- TLS-only bucket policies -----------------------------------------
+    # Deny any request not made over HTTPS (defense in depth).
+    UploadsBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref UploadsBucket
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyInsecureTransport
+              Effect: Deny
+              Principal: '*'
+              Action: 's3:*'
+              Resource:
+                - !GetAtt UploadsBucket.Arn
+                - !Sub '${UploadsBucket.Arn}/*'
+              Condition:
+                Bool:
+                  'aws:SecureTransport': 'false'
+
+    ResultsBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref ResultsBucket
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DenyInsecureTransport
+              Effect: Deny
+              Principal: '*'
+              Action: 's3:*'
+              Resource:
+                - !GetAtt ResultsBucket.Arn
+                - !Sub '${ResultsBucket.Arn}/*'
+              Condition:
+                Bool:
+                  'aws:SecureTransport': 'false'
+
+  Outputs:
+    UploadsBucketName:
+      Description: Name to set as the server's UPLOADS_BUCKET env var
+      Value: !Ref UploadsBucket
+    ResultsBucketName:
+      Description: Name to set as the server's RESULTS_BUCKET env var
+      Value: !Ref ResultsBucket
+    UploadsBucketArn:
+      Value: !GetAtt UploadsBucket.Arn
+    ResultsBucketArn:
+      Value: !GetAtt ResultsBucket.Arn
