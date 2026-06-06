@@ -388,7 +388,7 @@ npm run test:all           # unit then integration
 
 ### CI
 
-`.github/workflows/ci.yml` runs on pull requests and pushes:
+`.github/workflows/ci.yml` runs on pull requests only:
 
 | Job | What |
 |-----|------|
