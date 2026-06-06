@@ -258,13 +258,15 @@ Providers are stored in a registry (`registerModelProvider` / `getModelProvider`
 primary throws, and optional **weighted routing**. `Nano Banana` is implemented
 purely as `NanoBananaProvider` and is never referenced by name in orchestration.
 
-> **Nano Banana** is Google's nickname for the **Gemini 2.5 Flash Image** model.
+> **Nano Banana** is Google's nickname for its Gemini image models; we default to
+> **Nano Banana 2 = Gemini 3.1 Flash Image** (`gemini-3.1-flash-image-preview`).
 > `NanoBananaProvider` calls the real Gemini API
 > (`POST {baseUrl}/models/{model}:generateContent`, `x-goog-api-key` auth) and is
 > the only place those specifics live. The model returns one image per call, so a
 > job with `count > 1` fans out that many parallel requests. Configure it with
-> `NANO_BANANA_API_KEY` (a Gemini API key), `NANO_BANANA_BASE_URL`, and
-> `NANO_BANANA_MODEL`.
+> `NANO_BANANA_API_KEY` (a Gemini API key), `NANO_BANANA_BASE_URL`,
+> `NANO_BANANA_MODEL`, and optionally `NANO_BANANA_IMAGE_SIZE`
+> (`512`/`1K`/`2K`/`4K`, a Nano Banana 2 feature).
 
 ---
 

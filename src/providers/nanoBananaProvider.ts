@@ -1,21 +1,23 @@
 /**
  * NanoBananaProvider — image generation via Google's "Nano Banana".
  *
- * "Nano Banana" is Google's nickname for the Gemini 2.5 Flash Image model,
- * served by the Gemini API. This file is the ONLY place those specifics live;
- * it speaks the real Gemini `generateContent` contract:
+ * "Nano Banana" is Google's nickname for its Gemini image models, served by the
+ * Gemini API. We default to Nano Banana 2 (Gemini 3.1 Flash Image); the model
+ * id is configurable via NANO_BANANA_MODEL. This file is the ONLY place those
+ * specifics live; it speaks the real Gemini `generateContent` contract:
  *
  *   POST {baseUrl}/models/{model}:generateContent
  *   header:  x-goog-api-key: <gemini api key>
  *   body:    { contents: [{ parts: [{ text }, { inline_data:{ mime_type, data }}] }],
  *              generationConfig: { responseModalities: ["IMAGE"],
- *                                  imageConfig: { aspectRatio } } }
+ *                                  imageConfig: { aspectRatio, imageSize } } }
  *   resp:    { candidates: [{ content: { parts: [{ inlineData:{ mimeType, data }}] }}] }
  *
- * The model returns a single image per call, so to satisfy a job's `count` we
- * fan out `count` requests in parallel. The Gemini image API has no `style` or
- * `seed` parameters; style is expressed through the prompt, and `seed` from the
- * request is ignored (not supported by the model).
+ * `imageSize` ("512"/"1K"/"2K"/"4K") is a Nano Banana 2 feature and is sent only
+ * when configured. The model returns a single image per call, so to satisfy a
+ * job's `count` we fan out `count` requests in parallel. The Gemini image API
+ * has no `style` or `seed` parameters; style is expressed through the prompt,
+ * and `seed` from the request is ignored (not supported by the model).
  */
 
 import { config } from '../config/env';
@@ -48,11 +50,13 @@ export class NanoBananaProvider implements ImageProvider {
   private apiKey: string | null = null;
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly imageSize: string | undefined;
   private readonly log: Logger;
 
-  constructor(opts?: { baseUrl?: string; model?: string; apiKey?: string; logger?: Logger }) {
+  constructor(opts?: { baseUrl?: string; model?: string; imageSize?: string; apiKey?: string; logger?: Logger }) {
     this.baseUrl = opts?.baseUrl ?? config.providers.nanoBananaBaseUrl;
     this.model = opts?.model ?? config.providers.nanoBananaModel;
+    this.imageSize = opts?.imageSize ?? config.providers.nanoBananaImageSize;
     this.apiKey = opts?.apiKey ?? null;
     this.log = (opts?.logger ?? rootLogger).child({ provider: this.id });
   }
@@ -94,11 +98,14 @@ export class NanoBananaProvider implements ImageProvider {
     for (const ref of params.referenceImages) {
       parts.push({ inline_data: { mime_type: ref.contentType, data: ref.data.toString('base64') } });
     }
+    const imageConfig: Record<string, string> = {};
+    if (params.aspectRatio) imageConfig.aspectRatio = params.aspectRatio;
+    if (this.imageSize) imageConfig.imageSize = this.imageSize;
     return {
       contents: [{ parts }],
       generationConfig: {
         responseModalities: ['IMAGE'],
-        ...(params.aspectRatio ? { imageConfig: { aspectRatio: params.aspectRatio } } : {}),
+        ...(Object.keys(imageConfig).length > 0 ? { imageConfig } : {}),
       },
     };
   }

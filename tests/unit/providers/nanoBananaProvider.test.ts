@@ -35,7 +35,7 @@ function errorResponse(body: unknown, status: number): Response {
 }
 
 function provider(): NanoBananaProvider {
-  return new NanoBananaProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'gemini-2.5-flash-image' });
+  return new NanoBananaProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'gemini-3.1-flash-image-preview' });
 }
 
 describe('NanoBananaProvider.generateImages', () => {
@@ -52,7 +52,7 @@ describe('NanoBananaProvider.generateImages', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://x/models/gemini-2.5-flash-image:generateContent');
+    expect(url).toBe('https://x/models/gemini-3.1-flash-image-preview:generateContent');
     expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('k');
     expect((init.headers as Record<string, string>)['authorization']).toBeUndefined();
 
@@ -64,6 +64,19 @@ describe('NanoBananaProvider.generateImages', () => {
     });
     expect(sent.generationConfig.responseModalities).toEqual(['IMAGE']);
     expect(sent.generationConfig.imageConfig.aspectRatio).toBe('4:5');
+    // imageSize is omitted unless explicitly configured.
+    expect(sent.generationConfig.imageConfig.imageSize).toBeUndefined();
+  });
+
+  it('sends imageConfig.imageSize when configured (Nano Banana 2 resolution)', async () => {
+    const fetchMock = vi.fn(async () => geminiResponse({ data: Buffer.from('png'), mimeType: 'image/png' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const p = new NanoBananaProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'm', imageSize: '4K' });
+    await p.generateImages({ ...params, count: 1 });
+
+    const sent = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(sent.generationConfig.imageConfig.imageSize).toBe('4K');
   });
 
   it('fans out one request per image and maps candidates → Buffers', async () => {
