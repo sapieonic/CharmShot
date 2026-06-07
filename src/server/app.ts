@@ -14,6 +14,7 @@ import Fastify, {
   type FastifyRequest,
   type HTTPMethods,
 } from 'fastify';
+import cors from '@fastify/cors';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config/env';
 import { dispatch } from '../api/router';
@@ -56,6 +57,21 @@ export function buildApp(): FastifyInstance {
     // We do our own structured logging; disable Fastify's default logger.
     logger: false,
     genReqId: () => randomUUID(),
+  });
+
+  // CORS: allow the browser frontend to call the API cross-origin. Registered
+  // before routes so the plugin's onRequest hook answers preflight OPTIONS
+  // (which the explicit GET/POST route table below would otherwise 404) and
+  // attaches Access-Control-* headers to every response. `allowedOrigins`
+  // comes from CORS_ALLOWED_ORIGINS (comma-separated); "*" allows any origin.
+  const allowAnyOrigin = config.cors.allowedOrigins.includes('*');
+  app.register(cors, {
+    origin: allowAnyOrigin ? true : config.cors.allowedOrigins,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    // Credentials are not used (auth is a bearer token, not cookies), so a
+    // wildcard origin stays valid; leave credentials off.
+    maxAge: 86400,
   });
 
   // Preserve the raw body so the Razorpay webhook can hash/verify it, while

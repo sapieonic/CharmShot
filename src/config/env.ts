@@ -47,6 +47,17 @@ export const config = {
     bodyLimitBytes: int('BODY_LIMIT_BYTES', 1024 * 1024),
   },
 
+  // Browser CORS. The API is called cross-origin by the web frontend, so it
+  // must echo Access-Control-* headers and answer preflight OPTIONS requests.
+  cors: {
+    // Comma-separated list of allowed browser origins. Defaults to the local
+    // dev frontend (Vite on :5173). Set "*" to allow any origin.
+    allowedOrigins: (optStr('CORS_ALLOWED_ORIGINS') ?? 'http://localhost:5173')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
+
   // In-process background worker that runs generation jobs.
   worker: {
     // How many generation jobs to process concurrently in this process.

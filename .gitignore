@@ -3,6 +3,7 @@ dist/
 *.log
 .env
 .env.local
+.env.production
 .env.*.local
 coverage/
 .DS_Store
@@ -10,3 +11,4 @@ cdk.out/
 *.tsbuildinfo
 .idea/
 .vscode/
+.serverless/
