@@ -29,7 +29,7 @@ const ROUTES: { method: HTTPMethods; path: string }[] = [
   { method: 'GET', path: '/v1/generations/:jobId' },
   { method: 'GET', path: '/v1/presets' },
   { method: 'GET', path: '/v1/me/entitlements' },
-  { method: 'POST', path: '/v1/webhooks/revenuecat' },
+  { method: 'POST', path: '/v1/webhooks/razorpay' },
   { method: 'GET', path: '/health' },
 ];
 
@@ -58,7 +58,7 @@ export function buildApp(): FastifyInstance {
     genReqId: () => randomUUID(),
   });
 
-  // Preserve the raw body so the RevenueCat webhook can hash/verify it, while
+  // Preserve the raw body so the Razorpay webhook can hash/verify it, while
   // still exposing parsed JSON. Fastify gives us the parsed body; we also keep
   // the raw string by adding a content type parser that retains it.
   app.addContentTypeParser(

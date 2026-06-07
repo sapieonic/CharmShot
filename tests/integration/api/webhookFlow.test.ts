@@ -2,13 +2,17 @@
  * End-to-end webhook + rate-limit integration tests through the REAL router.
  *
  * Mocks ONLY Firebase auth (not needed for the public webhook route, but the
- * rate-limit test hits an authed route). MongoDB is real: webhook_events and
- * entitlements state is verified directly.
+ * rate-limit test hits an authed route). MongoDB is real: webhook_events state
+ * is verified directly.
+ *
+ * NOTE: the Razorpay integration is currently a shell — signature verification
+ * only checks header presence and no entitlement changes are applied yet, so
+ * these tests cover routing, gating, idempotency, and the response envelope.
  */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearCollections, closeTestDb, mongoAvailable } from '../../helpers/db';
-import { TEST_UID } from '../../helpers/fakes';
+import { TEST_UID, buildRazorpayWebhook } from '../../helpers/fakes';
 import { authedRequest, buildRequest, parseBody } from './requestBuilder';
 
 vi.mock('../../../src/auth/firebase', async (importOriginal) => {
@@ -25,22 +29,22 @@ vi.mock('../../../src/auth/firebase', async (importOriginal) => {
 
 import { dispatch } from '../../../src/api/router';
 import { collections } from '../../../src/db/mongo';
-import { config } from '../../../src/config/env';
 
-const WEBHOOK_ROUTE = '/v1/webhooks/revenuecat';
-const WEBHOOK_SECRET = 'test-webhook-secret'; // matches REVENUECAT_WEBHOOK_AUTH in tests/setup.ts
+const WEBHOOK_ROUTE = '/v1/webhooks/razorpay';
+// Any non-empty signature passes the shell verifier (see paymentService.ts);
+// PAYMENTS_ENABLED=true and RAZORPAY_WEBHOOK_SECRET come from tests/setup.ts.
+const SIGNATURE = 'test-signature';
 
-function webhookBody(eventId: string, overrides: Record<string, unknown> = {}) {
-  return {
-    api_version: '1.0',
-    event: {
-      id: eventId,
-      type: 'INITIAL_PURCHASE',
-      app_user_id: TEST_UID,
-      entitlement_ids: ['pro'],
-      ...overrides,
+function webhookRequest(eventId: string | undefined, body: Record<string, unknown>) {
+  return buildRequest({
+    method: 'POST',
+    routePath: WEBHOOK_ROUTE,
+    headers: {
+      'x-razorpay-signature': SIGNATURE,
+      ...(eventId ? { 'x-razorpay-event-id': eventId } : {}),
     },
-  };
+    body,
+  });
 }
 
 describe.skipIf(!mongoAvailable)('webhook + rate-limit flow (integration)', () => {
@@ -51,97 +55,62 @@ describe.skipIf(!mongoAvailable)('webhook + rate-limit flow (integration)', () =
     await closeTestDb();
   });
 
-  it('processes a valid RevenueCat webhook and updates the entitlement in Mongo', async () => {
-    const body = webhookBody('evt-purchase-1');
-    const res = await dispatch(
-      buildRequest({
-        method: 'POST',
-        routePath: WEBHOOK_ROUTE,
-        headers: { authorization: WEBHOOK_SECRET },
-        body,
-      }),
-    );
+  it('accepts a valid Razorpay webhook and records the event in Mongo', async () => {
+    const res = await dispatch(webhookRequest('evt-purchase-1', buildRazorpayWebhook()));
 
     expect(res.statusCode).toBe(200);
     expect(parseBody<{ status: string }>(res.body).status).toBe('processed');
 
-    const { entitlements, webhookEvents } = await collections();
-    const ent = await entitlements.findOne({ uid: TEST_UID });
-    expect(ent?.plan).toBe('pro');
-    expect(ent?.entitlementActive).toBe(true);
-    expect(ent?.creditsRemaining).toBe(200); // PLAN_CREDIT_GRANT.pro
+    const { webhookEvents } = await collections();
+    const event = await webhookEvents.findOne({ eventId: 'evt-purchase-1' });
+    expect(event?.type).toBe('payment.captured');
     expect(await webhookEvents.countDocuments({ eventId: 'evt-purchase-1' })).toBe(1);
   });
 
-  it('is idempotent: a duplicate event id is acknowledged but not re-applied', async () => {
-    const body = webhookBody('evt-dup-1');
+  it('is idempotent: a duplicate event id is acknowledged but not re-recorded', async () => {
+    const body = buildRazorpayWebhook();
 
-    const first = await dispatch(
-      buildRequest({ method: 'POST', routePath: WEBHOOK_ROUTE, headers: { authorization: WEBHOOK_SECRET }, body }),
-    );
+    const first = await dispatch(webhookRequest('evt-dup-1', body));
     expect(parseBody<{ status: string }>(first.body).status).toBe('processed');
 
-    const { entitlements } = await collections();
-    // Mutate credits AFTER first apply to detect any unwanted re-apply.
-    await entitlements.updateOne({ uid: TEST_UID }, { $set: { creditsRemaining: 5 } });
-
     // Re-deliver the SAME event id.
-    const second = await dispatch(
-      buildRequest({ method: 'POST', routePath: WEBHOOK_ROUTE, headers: { authorization: WEBHOOK_SECRET }, body }),
-    );
+    const second = await dispatch(webhookRequest('evt-dup-1', body));
     expect(second.statusCode).toBe(200);
     expect(parseBody<{ status: string }>(second.body).status).toBe('duplicate');
-
-    // Entitlement was NOT reset back to 200 on the duplicate.
-    const ent = await entitlements.findOne({ uid: TEST_UID });
-    expect(ent?.creditsRemaining).toBe(5);
 
     const { webhookEvents } = await collections();
     expect(await webhookEvents.countDocuments({ eventId: 'evt-dup-1' })).toBe(1);
   });
 
-  it('rejects a webhook with a bad secret (401) and applies nothing', async () => {
+  it('falls back to a body hash for idempotency when no event id header is sent', async () => {
+    const body = buildRazorpayWebhook({ event: 'order.paid' });
+
+    const first = await dispatch(webhookRequest(undefined, body));
+    expect(parseBody<{ status: string }>(first.body).status).toBe('processed');
+
+    const second = await dispatch(webhookRequest(undefined, body));
+    expect(parseBody<{ status: string }>(second.body).status).toBe('duplicate');
+
+    const { webhookEvents } = await collections();
+    expect(await webhookEvents.countDocuments({ type: 'order.paid' })).toBe(1);
+  });
+
+  it('rejects a webhook with a missing signature (401) and records nothing', async () => {
     const res = await dispatch(
-      buildRequest({
-        method: 'POST',
-        routePath: WEBHOOK_ROUTE,
-        headers: { authorization: 'wrong-secret' },
-        body: webhookBody('evt-bad-secret'),
-      }),
+      buildRequest({ method: 'POST', routePath: WEBHOOK_ROUTE, body: buildRazorpayWebhook() }),
     );
     expect(res.statusCode).toBe(401);
 
-    const { webhookEvents, entitlements } = await collections();
+    const { webhookEvents } = await collections();
     expect(await webhookEvents.countDocuments({})).toBe(0);
-    expect(await entitlements.countDocuments({ uid: TEST_UID })).toBe(0);
   });
 
-  it('downgrade event sets plan free + inactive in Mongo', async () => {
-    // First activate.
-    await dispatch(
-      buildRequest({
-        method: 'POST',
-        routePath: WEBHOOK_ROUTE,
-        headers: { authorization: WEBHOOK_SECRET },
-        body: webhookBody('evt-up'),
-      }),
-    );
-    // Then expire.
-    const res = await dispatch(
-      buildRequest({
-        method: 'POST',
-        routePath: WEBHOOK_ROUTE,
-        headers: { authorization: WEBHOOK_SECRET },
-        body: webhookBody('evt-down', { type: 'EXPIRATION' }),
-      }),
-    );
-    expect(res.statusCode).toBe(200);
+  it('rejects a malformed payload (400) and records nothing', async () => {
+    const res = await dispatch(webhookRequest('evt-bad-payload', { entity: 'event' }));
+    expect(res.statusCode).toBe(400);
 
-    const { entitlements } = await collections();
-    const ent = await entitlements.findOne({ uid: TEST_UID });
-    expect(ent?.plan).toBe('free');
-    expect(ent?.entitlementActive).toBe(false);
-    expect(ent?.creditsRemaining).toBe(config.credits.freeTierCredits);
+    const { webhookEvents } = await collections();
+    expect(await webhookEvents.countDocuments({})).toBe(0);
   });
 
   describe('rate limiting (Mongo-backed enforceRateLimit)', () => {

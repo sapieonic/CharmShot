@@ -16,6 +16,7 @@ process.env.RESULTS_BUCKET = 'charmshot-results-test';
 process.env.DEFAULT_MODEL_ID = 'nano-banana';
 process.env.NANO_BANANA_API_KEY = 'test-nano-key';
 
-process.env.REVENUECAT_WEBHOOK_AUTH = 'test-webhook-secret';
+process.env.PAYMENTS_ENABLED = 'true';
+process.env.RAZORPAY_WEBHOOK_SECRET = 'test-webhook-secret';
 process.env.FREE_TIER_CREDITS = '10';
 process.env.REFUND_ON_FAILURE = 'true';

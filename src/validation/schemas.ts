@@ -43,26 +43,21 @@ export const jobIdParamSchema = z.object({
 });
 
 /**
- * RevenueCat webhook envelope. We validate only the fields we rely on and pass
- * the rest through; RevenueCat may add fields over time.
+ * Razorpay webhook envelope. We validate only the fields we rely on and pass
+ * the rest through; Razorpay may add fields over time.
+ *
+ * Shape reference: https://razorpay.com/docs/webhooks/payloads/
+ * { entity: "event", event: "payment.captured", payload: { ... }, created_at }
  */
-export const revenueCatWebhookSchema = z.object({
-  event: z.object({
-    id: z.string().min(1),
-    type: z.string().min(1),
-    app_user_id: z.string().min(1),
-    // Optional fields used to map plan/credits
-    product_id: z.string().optional(),
-    entitlement_ids: z.array(z.string()).optional(),
-    entitlement_id: z.string().optional(),
-    period_type: z.string().optional(),
-    expiration_at_ms: z.number().optional(),
-    aliases: z.array(z.string()).optional(),
-    original_app_user_id: z.string().optional(),
-  }),
-  api_version: z.string().optional(),
+export const razorpayWebhookSchema = z.object({
+  entity: z.literal('event'),
+  event: z.string().min(1),
+  payload: z.record(z.unknown()),
+  account_id: z.string().optional(),
+  contains: z.array(z.string()).optional(),
+  created_at: z.number().optional(),
 });
-export type RevenueCatWebhook = z.infer<typeof revenueCatWebhookSchema>;
+export type RazorpayWebhook = z.infer<typeof razorpayWebhookSchema>;
 
 /** Parses with zod and throws a uniform validation error on failure. */
 export function parseOrThrow<S extends z.ZodTypeAny>(schema: S, data: unknown): z.infer<S> {

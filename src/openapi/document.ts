@@ -22,7 +22,7 @@ import {
   createGenerationSchema,
   jobIdParamSchema,
   presignRequestSchema,
-  revenueCatWebhookSchema,
+  razorpayWebhookSchema,
 } from '../validation/schemas';
 
 // Patch zod with `.openapi()` once for this module's schema metadata.
@@ -128,8 +128,8 @@ export function buildOpenApiDocument(): Record<string, unknown> {
   registry.registerComponent('securitySchemes', 'webhookAuth', {
     type: 'apiKey',
     in: 'header',
-    name: 'authorization',
-    description: 'Shared secret configured in RevenueCat (REVENUECAT_WEBHOOK_AUTH).',
+    name: 'x-razorpay-signature',
+    description: 'Razorpay webhook signature (HMAC of the raw body keyed with RAZORPAY_WEBHOOK_SECRET).',
   });
 
   // Register reusable request-schema components (response schemas are emitted
@@ -137,7 +137,7 @@ export function buildOpenApiDocument(): Record<string, unknown> {
   // the path definitions below).
   registry.register('PresignRequest', presignRequestSchema);
   registry.register('CreateGenerationRequest', createGenerationSchema);
-  registry.register('RevenueCatWebhook', revenueCatWebhookSchema);
+  registry.register('RazorpayWebhook', razorpayWebhookSchema);
 
   const bearer = [{ bearerAuth: [] as string[] }];
 
@@ -218,16 +218,17 @@ export function buildOpenApiDocument(): Record<string, unknown> {
 
   registry.registerPath({
     method: 'post',
-    path: '/v1/webhooks/revenuecat',
+    path: '/v1/webhooks/razorpay',
     tags: ['Webhooks'],
-    summary: 'RevenueCat billing webhook',
+    summary: 'Razorpay billing webhook',
     description:
-      'Idempotent webhook authenticated by a shared-secret Authorization header (NOT Firebase). Updates plan/credits by event type.',
+      'Idempotent webhook authenticated by the X-Razorpay-Signature header (NOT Firebase). Returns 503 when payments are disabled (PAYMENTS_ENABLED=false). Event-to-entitlement mapping is not implemented yet (shell).',
     security: [{ webhookAuth: [] }],
-    request: { body: { required: true, content: jsonContent(revenueCatWebhookSchema) } },
+    request: { body: { required: true, content: jsonContent(razorpayWebhookSchema) } },
     responses: {
       200: { description: 'Processed (or duplicate, ignored)', content: jsonContent(WebhookResponse) },
-      401: errorRes('Invalid webhook secret'),
+      401: errorRes('Invalid webhook signature'),
+      503: errorRes('Payments are disabled'),
     },
   });
 

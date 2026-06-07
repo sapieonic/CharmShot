@@ -4,7 +4,7 @@ import {
   jobIdParamSchema,
   parseOrThrow,
   presignRequestSchema,
-  revenueCatWebhookSchema,
+  razorpayWebhookSchema,
 } from '../../../src/validation/schemas';
 import { AppError } from '../../../src/shared/errors';
 
@@ -95,19 +95,29 @@ describe('createGenerationSchema', () => {
   });
 });
 
-describe('revenueCatWebhookSchema', () => {
+describe('razorpayWebhookSchema', () => {
   it('accepts a minimal valid envelope', () => {
-    const parsed = parseOrThrow(revenueCatWebhookSchema, {
-      event: { id: 'e1', type: 'INITIAL_PURCHASE', app_user_id: 'u1' },
+    const parsed = parseOrThrow(razorpayWebhookSchema, {
+      entity: 'event',
+      event: 'payment.captured',
+      payload: { payment: { entity: { id: 'pay_1' } } },
     });
-    expect(parsed.event.id).toBe('e1');
+    expect(parsed.event).toBe('payment.captured');
   });
 
-  it('rejects an envelope missing required event fields', () => {
-    const err = expectInvalid(revenueCatWebhookSchema, { event: { id: 'e1' } });
+  it('rejects an envelope missing required fields', () => {
+    const err = expectInvalid(razorpayWebhookSchema, { entity: 'event' });
     const paths = (err.details as { path: string }[]).map((d) => d.path);
-    expect(paths).toContain('event.type');
-    expect(paths).toContain('event.app_user_id');
+    expect(paths).toContain('event');
+    expect(paths).toContain('payload');
+  });
+
+  it('rejects a non-event entity', () => {
+    expectInvalid(razorpayWebhookSchema, {
+      entity: 'payment',
+      event: 'payment.captured',
+      payload: {},
+    });
   });
 });
 
