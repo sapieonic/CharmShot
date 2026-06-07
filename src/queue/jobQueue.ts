@@ -92,7 +92,10 @@ export class InProcessJobQueue {
     const logger = rootLogger.child({ jobId: message.jobId, uid: message.uid, component: 'worker' });
     // Root the job in its own CONSUMER span (the queue is the natural owner of
     // the "process this message" span), linked to the request that enqueued it.
-    // Spans the processor opens nest under this one.
+    // `root: true` is essential: the queue drains synchronously inside the
+    // enqueuing request's async context, so without it the job span would nest
+    // under that request span instead of starting its own trace. Spans the
+    // processor opens nest under this one.
     const link = message.traceContext ? linkFromCarrier(message.traceContext) : undefined;
     try {
       await withSpan(
@@ -100,6 +103,7 @@ export class InProcessJobQueue {
         () => this.processor!(message.jobId, logger),
         {
           kind: SpanKind.CONSUMER,
+          root: true,
           attributes: { 'job.id': message.jobId, 'enduser.id': message.uid },
           ...(link ? { links: [link] } : {}),
         },

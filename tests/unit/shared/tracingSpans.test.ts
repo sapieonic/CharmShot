@@ -170,6 +170,46 @@ describe('trace-context propagation', () => {
   });
 });
 
+describe('root spans (queue/consumer pattern)', () => {
+  it('a root span started inside an active span begins a new trace, linked back', async () => {
+    // Reproduces the queue scenario: a job is enqueued *while* a request span is
+    // active (the in-process drain runs synchronously inside the request's async
+    // context), so the consumer span must explicitly opt out of that parent.
+    let carrier: Record<string, string> = {};
+    let requestTraceId = '';
+    await withSpan('request', () => {
+      requestTraceId = currentSpanContext()!.trace_id;
+      carrier = injectTraceContext();
+
+      // Simulate runOne firing synchronously within the request context.
+      return withSpan('worker.process_job', () => undefined, {
+        root: true,
+        links: [linkFromCarrier(carrier)!],
+      });
+    });
+
+    const consumer = exporter.getFinishedSpans().find((s) => s.name === 'worker.process_job')!;
+    const request = exporter.getFinishedSpans().find((s) => s.name === 'request')!;
+    // New trace, no parent — NOT nested under the request span.
+    expect(consumer.spanContext().traceId).not.toBe(requestTraceId);
+    expect(consumer.parentSpanContext).toBeUndefined();
+    // ...but linked to the request that enqueued it.
+    expect(consumer.links).toHaveLength(1);
+    expect(consumer.links[0]!.context.traceId).toBe(request.spanContext().traceId);
+  });
+
+  it('children of a root span nest under it (same new trace)', async () => {
+    await withSpan('outer', () =>
+      withSpan('worker.process_job', () => withSpan('child', () => undefined), { root: true }),
+    );
+    const spans = exporter.getFinishedSpans();
+    const consumer = spans.find((s) => s.name === 'worker.process_job')!;
+    const child = spans.find((s) => s.name === 'child')!;
+    expect(child.spanContext().traceId).toBe(consumer.spanContext().traceId);
+    expect(child.parentSpanContext?.spanId).toBe(consumer.spanContext().spanId);
+  });
+});
+
 describe('log ↔ trace correlation', () => {
   it('stamps trace_id/span_id onto log lines emitted inside a span', async () => {
     const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);

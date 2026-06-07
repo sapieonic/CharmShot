@@ -94,6 +94,13 @@ export interface SpanOptions {
    * `extractContext(...)` for an inbound request. Defaults to the active context.
    */
   parent?: Context;
+  /**
+   * Force a brand-new trace, ignoring any active/parent span. Needed when work
+   * is dispatched synchronously inside another span's async context but should
+   * be its own trace (e.g. the in-process queue draining within a request) —
+   * use `links` to keep the connection back to the originator.
+   */
+  root?: boolean;
   /** Span links (e.g. the request that enqueued this background job). */
   links?: Link[];
 }
@@ -112,7 +119,10 @@ export function withSpan<T>(name: string, fn: (span: Span) => Promise<T> | T, op
     ...(opts.kind !== undefined ? { kind: opts.kind } : {}),
     ...(opts.attributes ? { attributes: opts.attributes } : {}),
     ...(opts.links ? { links: opts.links } : {}),
+    ...(opts.root ? { root: true } : {}),
   };
+  // `root` forces a new trace regardless of context, so only thread a parent
+  // context when not rooting.
   const parent = opts.parent ?? otelContext.active();
   return tracer.startActiveSpan(name, startOptions, parent, async (span) => {
     try {
