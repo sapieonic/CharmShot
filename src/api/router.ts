@@ -5,7 +5,8 @@
  * is public (secret-header auth handled inside its handler).
  */
 
-import { rootLogger } from '../shared/logger';
+import { rootLogger, type Logger } from '../shared/logger';
+import { extractContext, setActiveSpanAttributes, SpanKind, SpanStatusCode, withSpan } from '../shared/tracing';
 import { Errors } from '../shared/errors';
 import { errorResponse } from '../http/responses';
 import type { HttpRequest, HttpResponse, RouteHandler, PublicRouteHandler } from '../http/apiTypes';
@@ -38,6 +39,35 @@ export async function dispatch(req: HttpRequest): Promise<HttpResponse> {
   const key = `${req.method} ${req.routePath}`;
   const logger = rootLogger.child({ requestId: req.requestId, route: key });
 
+  // Open a SERVER span for the whole request, continuing any inbound trace
+  // (W3C `traceparent`) so calls from instrumented clients stay connected.
+  return withSpan(
+    `${req.method} ${req.routePath}`,
+    async (span) => {
+      const res = await route(req, key, logger);
+      span.setAttribute('http.response.status_code', res.statusCode);
+      // Server-side errors mark the span failed; 4xx are client problems, not
+      // span errors, so they stay OK.
+      if (res.statusCode >= 500) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${res.statusCode}` });
+      }
+      return res;
+    },
+    {
+      kind: SpanKind.SERVER,
+      parent: extractContext(req.headers),
+      attributes: {
+        'http.request.method': req.method,
+        'http.route': req.routePath,
+        'url.path': req.rawPath,
+        'request.id': req.requestId,
+      },
+    },
+  );
+}
+
+/** Resolve, authenticate, and run the handler, returning the error envelope on failure. */
+async function route(req: HttpRequest, key: string, logger: Logger): Promise<HttpResponse> {
   // Public routes first (no Firebase auth).
   const publicHandler = publicRoutes[key];
   if (publicHandler) {
@@ -57,6 +87,8 @@ export async function dispatch(req: HttpRequest): Promise<HttpResponse> {
     const token = extractBearerToken(req.headers['authorization']);
     const user = await authenticate(token);
     await enforceRateLimit(user.uid);
+    // Tag the request span/trace with the authenticated user for correlation.
+    setActiveSpanAttributes({ 'enduser.id': user.uid });
     const ctx = { user, logger: logger.child({ uid: user.uid }) };
     return await handler(req, ctx);
   } catch (err) {

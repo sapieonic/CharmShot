@@ -8,6 +8,7 @@
 
 import { config } from '../config/env';
 import { emitOtelLog } from './telemetry';
+import { currentSpanContext } from './tracing';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -50,7 +51,10 @@ export class Logger {
 
   private write(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
     if (LEVEL_WEIGHT[level] < this.threshold) return;
-    const attributes = { ...this.context, ...(extra ?? {}) };
+    // Stamp trace/span ids onto every line so logs join their trace. Adds
+    // nothing (and so leaves output unchanged) when tracing is disabled.
+    const spanCtx = currentSpanContext();
+    const attributes = { ...this.context, ...(extra ?? {}), ...(spanCtx ?? {}) };
     const line = {
       level,
       time: new Date().toISOString(),

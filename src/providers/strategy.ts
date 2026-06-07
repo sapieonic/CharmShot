@@ -16,6 +16,7 @@ import { Logger, rootLogger } from '../shared/logger';
 import { toAppError } from '../shared/errors';
 import { emitMetric } from '../shared/metrics';
 import { captureAiGeneration } from '../shared/posthog';
+import { recordSpanError, SpanKind, withSpan } from '../shared/tracing';
 import { getModelProvider, hasModelProvider } from './factory';
 import type { GenerateImagesParams, GeneratedImage, ImageProvider } from './types';
 
@@ -111,26 +112,52 @@ export async function executeWithStrategy(
   const latencyOpts = opts.ai?.distinctId ? { distinctId: opts.ai.distinctId } : {};
 
   for (const provider of chain) {
-    // Time each attempt once and emit both the latency metric and a PostHog
-    // `$ai_generation` event (success or error) for LLM-analytics traces.
-    const start = Date.now();
-    try {
-      log.info('Attempting provider', { provider: provider.id });
-      const images = await provider.generateImages(params);
-      const latencyMs = Date.now() - start;
-      emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
-      captureGeneration(provider, latencyMs, opts.ai);
-      return { images, providerUsed: provider.id };
-    } catch (err) {
-      const latencyMs = Date.now() - start;
-      lastErr = err;
-      emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
-      captureGeneration(provider, latencyMs, opts.ai, err);
-      log.warn('Provider failed, trying next if available', {
-        provider: provider.id,
-        error: String(err),
-      });
+    // One CLIENT span per attempt so a fallback shows up as a sibling span and
+    // each provider's latency/outcome is visible in the trace. A failed attempt
+    // is recorded but swallowed here so the loop can try the next provider.
+    const attempt = await withSpan(
+      'image.generate',
+      async (span): Promise<{ images: GeneratedImage[] } | { error: unknown }> => {
+        // Time each attempt once and emit both the latency metric and a PostHog
+        // `$ai_generation` event (success or error) for LLM-analytics traces.
+        const start = Date.now();
+        try {
+          log.info('Attempting provider', { provider: provider.id });
+          const images = await provider.generateImages(params);
+          const latencyMs = Date.now() - start;
+          span.setAttribute('gen_ai.response.latency_ms', latencyMs);
+          emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
+          captureGeneration(provider, latencyMs, opts.ai);
+          return { images };
+        } catch (err) {
+          const latencyMs = Date.now() - start;
+          span.setAttribute('gen_ai.response.latency_ms', latencyMs);
+          recordSpanError(span, err);
+          emitMetric('provider_latency_ms', latencyMs, { dimensions: { provider: provider.id }, ...latencyOpts });
+          captureGeneration(provider, latencyMs, opts.ai, err);
+          log.warn('Provider failed, trying next if available', {
+            provider: provider.id,
+            error: String(err),
+          });
+          return { error: err };
+        }
+      },
+      {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'gen_ai.system': provider.id,
+          'gen_ai.request.model': provider.model,
+          'gen_ai.operation.name': 'image.generate',
+          'gen_ai.request.image_count': params.count,
+          ...(params.stylePreset ? { 'gen_ai.request.style_preset': params.stylePreset } : {}),
+        },
+      },
+    );
+
+    if ('images' in attempt) {
+      return { images: attempt.images, providerUsed: provider.id };
     }
+    lastErr = attempt.error;
   }
   throw toAppError(lastErr);
 }

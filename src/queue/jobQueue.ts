@@ -19,10 +19,17 @@
 
 import { config } from '../config/env';
 import { rootLogger, type Logger } from '../shared/logger';
+import { linkFromCarrier, SpanKind, withSpan } from '../shared/tracing';
 
 export interface GenerationJobMessage {
   jobId: string;
   uid: string;
+  /**
+   * W3C trace-context carrier captured when the job was enqueued, used to link
+   * the job's processing span back to the request that created it. Absent for
+   * recovered jobs (no originating request).
+   */
+  traceContext?: Record<string, string>;
 }
 
 export type JobProcessor = (jobId: string, logger: Logger) => Promise<void>;
@@ -83,8 +90,20 @@ export class InProcessJobQueue {
 
   private async runOne(message: GenerationJobMessage): Promise<void> {
     const logger = rootLogger.child({ jobId: message.jobId, uid: message.uid, component: 'worker' });
+    // Root the job in its own CONSUMER span (the queue is the natural owner of
+    // the "process this message" span), linked to the request that enqueued it.
+    // Spans the processor opens nest under this one.
+    const link = message.traceContext ? linkFromCarrier(message.traceContext) : undefined;
     try {
-      await this.processor!(message.jobId, logger);
+      await withSpan(
+        'worker.process_job',
+        () => this.processor!(message.jobId, logger),
+        {
+          kind: SpanKind.CONSUMER,
+          attributes: { 'job.id': message.jobId, 'enduser.id': message.uid },
+          ...(link ? { links: [link] } : {}),
+        },
+      );
     } catch (err) {
       // Processor already records terminal failures; this guards against
       // unexpected throws so one bad job never crashes the worker loop.

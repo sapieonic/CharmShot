@@ -18,6 +18,7 @@ import { enqueueGenerationJob } from '../queue/jobQueue';
 import { newJobId } from '../shared/ids';
 import { Errors } from '../shared/errors';
 import { emitMetric } from '../shared/metrics';
+import { injectTraceContext } from '../shared/tracing';
 import type { Logger } from '../shared/logger';
 import type { JobRecord, JobStatusResult } from '../shared/types';
 import { getPreset } from '../presets/presets';
@@ -84,8 +85,11 @@ export async function createGeneration(
   }
 
   // 5. Enqueue async work. If enqueue fails, mark the job failed + refund.
+  // Carry the current trace context so the background job's span links back to
+  // this request (empty when tracing is disabled).
+  const traceContext = injectTraceContext();
   try {
-    await enqueueGenerationJob({ jobId, uid });
+    await enqueueGenerationJob({ jobId, uid, ...(Object.keys(traceContext).length > 0 ? { traceContext } : {}) });
   } catch (err) {
     await refundCredits(uid, creditsRequired);
     emitMetric('credits_refunded', creditsRequired, { distinctId: uid });

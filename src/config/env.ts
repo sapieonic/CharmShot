@@ -35,6 +35,46 @@ function bool(name: string, fallback: boolean): boolean {
   return v.toLowerCase() === 'true' || v === '1';
 }
 
+function float(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  const n = Number.parseFloat(v);
+  return Number.isNaN(n) ? fallback : n;
+}
+
+/**
+ * Parse the standard OTEL `key1=value1,key2=value2` header format (as used by
+ * `OTEL_EXPORTER_OTLP_HEADERS`) into an object. Returns an empty object when
+ * unset or malformed so callers never have to null-check.
+ */
+function otelHeaders(name: string): Record<string, string> {
+  const raw = process.env[name];
+  if (!raw) return {};
+  const out: Record<string, string> = {};
+  for (const pair of raw.split(',')) {
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const key = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Resolve the OTLP/HTTP traces endpoint from the standard OTEL env vars:
+ * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` wins; otherwise the generic
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` is suffixed with `/v1/traces`. Unset means the
+ * exporter falls back to its own default (http://localhost:4318/v1/traces).
+ */
+function tracesEndpoint(): string | undefined {
+  const specific = optStr('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT');
+  if (specific) return specific;
+  const base = optStr('OTEL_EXPORTER_OTLP_ENDPOINT');
+  if (base) return `${base.replace(/\/+$/, '')}/v1/traces`;
+  return undefined;
+}
+
 export const config = {
   nodeEnv: optStr('NODE_ENV') ?? 'development',
   logLevel: optStr('LOG_LEVEL') ?? 'info',
@@ -147,6 +187,26 @@ export const config = {
     logsEnabled: bool('POSTHOG_LOGS_ENABLED', false),
     // OpenTelemetry resource service.name attached to shipped logs.
     serviceName: optStr('POSTHOG_SERVICE_NAME') ?? 'charmshot-api',
+  },
+
+  // Distributed tracing via OpenTelemetry spans, exported over OTLP/HTTP.
+  // Off by default and a complete no-op until TRACING_ENABLED=true, mirroring
+  // the PostHog/log-shipping integrations. Backend-agnostic: point it at any
+  // OTLP collector (Jaeger, Tempo, Honeycomb, Datadog Agent, the OTel
+  // Collector, …) via the standard OTEL_EXPORTER_OTLP_* env vars.
+  tracing: {
+    enabled: bool('TRACING_ENABLED', false),
+    // Target OTLP/HTTP traces endpoint (standard OTEL env vars). Unset =
+    // exporter default (http://localhost:4318/v1/traces).
+    endpoint: tracesEndpoint(),
+    // Extra exporter headers, e.g. auth: "Authorization=Bearer xxx".
+    headers: otelHeaders('OTEL_EXPORTER_OTLP_HEADERS'),
+    // Head-based sampling ratio in [0,1]. 1 = record every trace (default);
+    // ParentBased so a sampled inbound request keeps its children sampled.
+    sampleRatio: Math.min(1, Math.max(0, float('TRACING_SAMPLE_RATIO', 1))),
+    // service.name on the exported resource. Shares the PostHog service name by
+    // default so logs and traces line up under one service.
+    serviceName: optStr('OTEL_SERVICE_NAME') ?? optStr('POSTHOG_SERVICE_NAME') ?? 'charmshot-api',
   },
 } as const;
 

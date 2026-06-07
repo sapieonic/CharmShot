@@ -15,12 +15,14 @@ import { jobQueue } from '../queue/jobQueue';
 import { recoverUnfinishedJobs, startWorker } from '../worker';
 import { rootLogger } from '../shared/logger';
 import { startTelemetry, shutdownTelemetry } from '../shared/telemetry';
+import { startTracing, shutdownTracing } from '../shared/tracing';
 import { shutdownPostHog } from '../shared/posthog';
 
 async function main(): Promise<void> {
-  // Start OTLP log shipping to PostHog Logs (no-op unless configured) before
-  // anything logs, so boot logs are captured too.
+  // Start OTLP log shipping + tracing (both no-ops unless configured) before
+  // anything logs or runs, so boot logs/spans are captured too.
   startTelemetry();
+  startTracing();
 
   // Establish the DB connection + indexes up front so the first request is fast
   // and startup fails loudly if Mongo is unreachable.
@@ -56,6 +58,7 @@ async function main(): Promise<void> {
       // any shutdown error logged above) are shipped before we exit.
       await shutdownPostHog();
       await shutdownTelemetry();
+      await shutdownTracing();
     }
     process.exit(exitCode);
   };
