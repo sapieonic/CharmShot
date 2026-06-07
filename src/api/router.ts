@@ -2,7 +2,7 @@
  * Minimal route dispatcher shared by the Lambda entrypoint and the local dev
  * server. Routes are matched by "METHOD routePath". Authenticated routes are
  * wrapped with Firebase verification + per-uid rate limiting; the webhook route
- * is public (secret-header auth handled inside its handler).
+ * is public (signature-header auth handled inside its handler).
  */
 
 import { rootLogger } from '../shared/logger';
@@ -19,7 +19,7 @@ import {
   handleListPresets,
   handlePresign,
 } from './handlers';
-import { handleRevenueCatWebhook } from './webhookHandler';
+import { handleRazorpayWebhook } from './webhookHandler';
 
 const authedRoutes: Record<string, RouteHandler> = {
   'POST /v1/uploads/presign': handlePresign,
@@ -30,7 +30,7 @@ const authedRoutes: Record<string, RouteHandler> = {
 };
 
 const publicRoutes: Record<string, PublicRouteHandler> = {
-  'POST /v1/webhooks/revenuecat': handleRevenueCatWebhook,
+  'POST /v1/webhooks/razorpay': handleRazorpayWebhook,
   'GET /health': async () => ({ statusCode: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: 'ok' }) }),
 };
 

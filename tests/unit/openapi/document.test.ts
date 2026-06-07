@@ -19,7 +19,7 @@ describe('OpenAPI document', () => {
         '/v1/me/entitlements',
         '/v1/presets',
         '/v1/uploads/presign',
-        '/v1/webhooks/revenuecat',
+        '/v1/webhooks/razorpay',
       ].sort(),
     );
   });
@@ -34,8 +34,13 @@ describe('OpenAPI document', () => {
     expect(doc.paths['/v1/me/entitlements'].get.security).toEqual([{ bearerAuth: [] }]);
   });
 
-  it('uses the webhook secret scheme (not bearer) for the webhook', () => {
-    expect(doc.paths['/v1/webhooks/revenuecat'].post.security).toEqual([{ webhookAuth: [] }]);
+  it('uses the webhook signature scheme (not bearer) for the webhook', () => {
+    expect(doc.paths['/v1/webhooks/razorpay'].post.security).toEqual([{ webhookAuth: [] }]);
+  });
+
+  it('documents the 503 payments-disabled response on the webhook', () => {
+    const responses = doc.paths['/v1/webhooks/razorpay'].post.responses;
+    expect(Object.keys(responses)).toEqual(expect.arrayContaining(['200', '401', '503']));
   });
 
   it('leaves /health unauthenticated', () => {
@@ -58,7 +63,7 @@ describe('OpenAPI document', () => {
       expect.arrayContaining([
         'PresignRequest',
         'CreateGenerationRequest',
-        'RevenueCatWebhook',
+        'RazorpayWebhook',
         'JobStatusResponse',
         'ErrorResponse',
         'PresetsResponse',

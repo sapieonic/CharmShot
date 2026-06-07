@@ -6,7 +6,7 @@
 
 import type { AuthenticatedUser, EntitlementRecord, JobRecord, UserRecord } from '../../src/shared/types';
 import type { TokenVerifier } from '../../src/auth/firebase';
-import type { RevenueCatWebhook } from '../../src/validation/schemas';
+import type { RazorpayWebhook } from '../../src/validation/schemas';
 
 export const TEST_UID = 'uid-test-123';
 
@@ -60,17 +60,15 @@ export function buildJobRecord(overrides: Partial<JobRecord> = {}): JobRecord {
   };
 }
 
-export function buildRevenueCatWebhook(
-  overrides: Partial<RevenueCatWebhook['event']> = {},
-): RevenueCatWebhook {
+export function buildRazorpayWebhook(overrides: Partial<RazorpayWebhook> = {}): RazorpayWebhook {
   return {
-    api_version: '1.0',
-    event: {
-      id: `evt-${Math.random().toString(36).slice(2)}`,
-      type: 'INITIAL_PURCHASE',
-      app_user_id: TEST_UID,
-      entitlement_ids: ['pro'],
-      ...overrides,
+    entity: 'event',
+    event: 'payment.captured',
+    contains: ['payment'],
+    payload: {
+      payment: { entity: { id: 'pay_test123', notes: { uid: TEST_UID } } },
     },
+    created_at: 1767225600,
+    ...overrides,
   };
 }

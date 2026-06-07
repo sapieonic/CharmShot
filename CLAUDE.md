@@ -9,7 +9,8 @@ and request identity-preserving enhanced photos. TypeScript on Node.js 22,
 running as a **single long-lived process**: a Fastify HTTP server plus an
 **in-process background worker** in the same process. State is in MongoDB;
 images live in **S3 (the only external AWS dependency)**. Auth is Firebase;
-billing is RevenueCat.
+billing is Razorpay (currently a **shell integration** in
+`src/services/paymentService.ts`, gated by `PAYMENTS_ENABLED`, default off).
 
 ## Commands
 
@@ -42,7 +43,7 @@ There is **no ESLint** — `lint` is just `tsc --noEmit`. Local Docker stacks:
 **The HTTP layer is a thin adapter.** `src/server/app.ts` (Fastify) does transport only — it normalizes the request into a framework-agnostic `HttpRequest` and calls `dispatch()` in `src/api/router.ts`. The router owns auth, rate limiting, routing, and the error envelope. This split is deliberate (Fastify is swappable; a Lambda adapter previously used the same router), so keep handler/service logic out of `app.ts`.
 
 - Adding a route means editing **two** places: the `ROUTES` table in `app.ts` (Fastify uses `:param`) **and** the `authedRoutes`/`publicRoutes` maps in `router.ts` (internal router uses `{param}`).
-- Authenticated routes are wrapped by the router with Firebase token verification + per-uid rate limiting before the handler runs. The RevenueCat webhook is a **public** route that does its own secret-header auth, and needs the **raw** request body (preserved via a custom content-type parser in `app.ts`) to verify/hash.
+- Authenticated routes are wrapped by the router with Firebase token verification + per-uid rate limiting before the handler runs. The Razorpay webhook is a **public** route that does its own signature-header auth (shell for now), returns 503 when `PAYMENTS_ENABLED=false`, and needs the **raw** request body (preserved via a custom content-type parser in `app.ts`) to verify/hash.
 
 **Generation is asynchronous in one process.** `POST /v1/generations` reserves credits, persists a `PENDING` job, enqueues it, and returns `{ jobId, status: "PENDING" }` immediately. The in-process queue (`src/queue/jobQueue.ts`, an in-memory concurrency-limited singleton) drives the job to a terminal state via the processor (`src/worker/processor.ts`). Clients poll `GET /v1/generations/{jobId}`.
 

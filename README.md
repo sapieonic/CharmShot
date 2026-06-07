@@ -7,7 +7,8 @@ lighting, grooming, outfit, and composition.
 Built with TypeScript on Node.js 22 as a single long-running **Fastify server**
 with an **in-process background worker**. State lives in MongoDB; uploaded and
 generated images live in **S3 (the only external AWS dependency)**. Auth is
-Firebase; billing is RevenueCat. The image model sits behind a provider factory
+Firebase; billing is Razorpay (shell integration for now, gated by
+`PAYMENTS_ENABLED`). The image model sits behind a provider factory
 so new models can be added without touching job orchestration.
 
 ---
@@ -141,7 +142,7 @@ Errors use a consistent shape:
 | `GET`  | `/v1/generations/{jobId}` | Get job status + signed result URLs |
 | `GET`  | `/v1/presets` | List style presets |
 | `GET`  | `/v1/me/entitlements` | Current plan + remaining credits |
-| `POST` | `/v1/webhooks/revenuecat` | RevenueCat webhook (secret-header auth) |
+| `POST` | `/v1/webhooks/razorpay` | Razorpay webhook (signature-header auth; 503 when payments disabled) |
 | `GET`  | `/health` | Health check (public) |
 
 ### `POST /v1/uploads/presign`
@@ -291,12 +292,17 @@ purely as `NanoBananaProvider` and is never referenced by name in orchestration.
 - If the job fails and `REFUND_ON_FAILURE=true`, the worker refunds the credits.
 - `GET /v1/me/entitlements` returns plan + remaining credits.
 
-RevenueCat drives plan changes via `POST /v1/webhooks/revenuecat`, which:
+Razorpay will drive plan changes via `POST /v1/webhooks/razorpay`. The
+integration is currently a **shell** (`src/services/paymentService.ts`) and the
+whole payments surface is gated by `PAYMENTS_ENABLED` (default `false` — the
+webhook returns 503 while disabled). What's wired today:
 
-1. Verifies a shared-secret `Authorization` header (`REVENUECAT_WEBHOOK_AUTH`).
-2. Records `eventId` once in `webhook_events` for **idempotency** — duplicate
-   deliveries are acknowledged but not re-applied.
-3. Maps `app_user_id → Firebase uid` and updates plan/credits by event type.
+1. Verifies the `X-Razorpay-Signature` header is present (real HMAC
+   verification against `RAZORPAY_WEBHOOK_SECRET` is a TODO).
+2. Records the event id (`X-Razorpay-Event-Id` header, else a body hash) once
+   in `webhook_events` for **idempotency** — duplicate deliveries are
+   acknowledged but not re-applied.
+3. Event-to-entitlement mapping (plan/credit updates) is a TODO stub.
 
 ---
 
@@ -442,7 +448,8 @@ for the full annotated list. Key groups: server (`PORT`, `HOST`), worker
 (`WORKER_ENABLED`, `WORKER_CONCURRENCY`), Mongo (`MONGODB_URI`,
 `MONGODB_DB_NAME`), S3 (`AWS_*`, `UPLOADS_BUCKET`, `RESULTS_BUCKET`,
 `S3_ENDPOINT`), Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON`),
-RevenueCat (`REVENUECAT_WEBHOOK_AUTH`), providers (`NANO_BANANA_API_KEY`,
+payments (`PAYMENTS_ENABLED`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+`RAZORPAY_WEBHOOK_SECRET`), providers (`NANO_BANANA_API_KEY`,
 `DEFAULT_MODEL_ID`, `FALLBACK_MODEL_ID`), and credits/rate-limit settings.
 
 ---

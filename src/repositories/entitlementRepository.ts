@@ -54,7 +54,7 @@ export async function refundCredits(uid: string, amount: number): Promise<void> 
   );
 }
 
-/** Apply a plan/credit update from a billing event (RevenueCat). */
+/** Apply a plan/credit update from a billing event (e.g. a Razorpay webhook). */
 export async function applyEntitlementUpdate(
   uid: string,
   update: {

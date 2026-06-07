@@ -27,8 +27,9 @@ components:
     webhookAuth:
       type: apiKey
       in: header
-      name: authorization
-      description: Shared secret configured in RevenueCat (REVENUECAT_WEBHOOK_AUTH).
+      name: x-razorpay-signature
+      description: Razorpay webhook signature (HMAC of the raw body keyed with
+        RAZORPAY_WEBHOOK_SECRET).
   schemas:
     PresignRequest:
       type: object
@@ -89,47 +90,31 @@ components:
         - referenceImageKeys
         - presetId
         - count
-    RevenueCatWebhook:
+    RazorpayWebhook:
       type: object
       properties:
-        event:
-          type: object
-          properties:
-            id:
-              type: string
-              minLength: 1
-            type:
-              type: string
-              minLength: 1
-            app_user_id:
-              type: string
-              minLength: 1
-            product_id:
-              type: string
-            entitlement_ids:
-              type: array
-              items:
-                type: string
-            entitlement_id:
-              type: string
-            period_type:
-              type: string
-            expiration_at_ms:
-              type: number
-            aliases:
-              type: array
-              items:
-                type: string
-            original_app_user_id:
-              type: string
-          required:
-            - id
-            - type
-            - app_user_id
-        api_version:
+        entity:
           type: string
+          enum:
+            - event
+        event:
+          type: string
+          minLength: 1
+        payload:
+          type: object
+          additionalProperties: {}
+        account_id:
+          type: string
+        contains:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: number
       required:
+        - entity
         - event
+        - payload
     PresignResponse:
       type: object
       properties:
@@ -520,13 +505,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  /v1/webhooks/revenuecat:
+  /v1/webhooks/razorpay:
     post:
       tags:
         - Webhooks
-      summary: RevenueCat billing webhook
-      description: Idempotent webhook authenticated by a shared-secret Authorization
-        header (NOT Firebase). Updates plan/credits by event type.
+      summary: Razorpay billing webhook
+      description: Idempotent webhook authenticated by the X-Razorpay-Signature header
+        (NOT Firebase). Returns 503 when payments are disabled
+        (PAYMENTS_ENABLED=false). Event-to-entitlement mapping is not
+        implemented yet (shell).
       security:
         - webhookAuth: []
       requestBody:
@@ -536,44 +523,28 @@ paths:
             schema:
               type: object
               properties:
-                event:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      minLength: 1
-                    type:
-                      type: string
-                      minLength: 1
-                    app_user_id:
-                      type: string
-                      minLength: 1
-                    product_id:
-                      type: string
-                    entitlement_ids:
-                      type: array
-                      items:
-                        type: string
-                    entitlement_id:
-                      type: string
-                    period_type:
-                      type: string
-                    expiration_at_ms:
-                      type: number
-                    aliases:
-                      type: array
-                      items:
-                        type: string
-                    original_app_user_id:
-                      type: string
-                  required:
-                    - id
-                    - type
-                    - app_user_id
-                api_version:
+                entity:
                   type: string
+                  enum:
+                    - event
+                event:
+                  type: string
+                  minLength: 1
+                payload:
+                  type: object
+                  additionalProperties: {}
+                account_id:
+                  type: string
+                contains:
+                  type: array
+                  items:
+                    type: string
+                created_at:
+                  type: number
               required:
+                - entity
                 - event
+                - payload
       responses:
         "200":
           description: Processed (or duplicate, ignored)
@@ -582,7 +553,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebhookResponse"
         "401":
-          description: Invalid webhook secret
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Payments are disabled
           content:
             application/json:
               schema:

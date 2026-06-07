@@ -79,9 +79,18 @@ export const config = {
     serviceAccountJson: optStr('FIREBASE_SERVICE_ACCOUNT_JSON'),
   },
 
-  revenuecat: {
-    // Expected value of the Authorization header on incoming webhooks.
-    webhookAuth: optStr('REVENUECAT_WEBHOOK_AUTH'),
+  // Payments (Razorpay). The integration is currently a shell — webhook and
+  // order methods exist but are not fully implemented. The whole payments
+  // surface is gated behind `enabled` (off by default), so the API can run
+  // with payments turned off entirely.
+  payments: {
+    enabled: bool('PAYMENTS_ENABLED', false),
+    razorpay: {
+      keyId: optStr('RAZORPAY_KEY_ID'),
+      keySecret: optStr('RAZORPAY_KEY_SECRET'),
+      // Secret used to verify the X-Razorpay-Signature header on webhooks.
+      webhookSecret: optStr('RAZORPAY_WEBHOOK_SECRET'),
+    },
   },
 
   providers: {

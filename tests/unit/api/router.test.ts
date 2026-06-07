@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TEST_UID } from '../../helpers/fakes';
 import type { HttpRequest } from '../../../src/http/apiTypes';
 
-const { authenticate, enforceRateLimit, handlePresign, handleRevenueCatWebhook } = vi.hoisted(() => ({
+const { authenticate, enforceRateLimit, handlePresign, handleRazorpayWebhook } = vi.hoisted(() => ({
   authenticate: vi.fn(),
   enforceRateLimit: vi.fn(async () => undefined),
   handlePresign: vi.fn(async () => ({ statusCode: 200, headers: {}, body: JSON.stringify({ ok: true }) })),
-  handleRevenueCatWebhook: vi.fn(async () => ({ statusCode: 200, headers: {}, body: JSON.stringify({ status: 'processed' }) })),
+  handleRazorpayWebhook: vi.fn(async () => ({ statusCode: 200, headers: {}, body: JSON.stringify({ status: 'processed' }) })),
 }));
 
 vi.mock('../../../src/services/authService', () => ({ authenticate }));
@@ -18,7 +18,7 @@ vi.mock('../../../src/api/handlers', () => ({
   handleListPresets: vi.fn(),
   handleGetEntitlements: vi.fn(),
 }));
-vi.mock('../../../src/api/webhookHandler', () => ({ handleRevenueCatWebhook }));
+vi.mock('../../../src/api/webhookHandler', () => ({ handleRazorpayWebhook }));
 
 import { dispatch } from '../../../src/api/router';
 
@@ -58,10 +58,10 @@ describe('dispatch', () => {
 
   it('reaches the webhook handler without Firebase auth', async () => {
     const res = await dispatch(
-      req({ method: 'POST', routePath: '/v1/webhooks/revenuecat', rawPath: '/v1/webhooks/revenuecat' }),
+      req({ method: 'POST', routePath: '/v1/webhooks/razorpay', rawPath: '/v1/webhooks/razorpay' }),
     );
     expect(res.statusCode).toBe(200);
-    expect(handleRevenueCatWebhook).toHaveBeenCalledTimes(1);
+    expect(handleRazorpayWebhook).toHaveBeenCalledTimes(1);
     expect(authenticate).not.toHaveBeenCalled();
   });
 

@@ -16,6 +16,7 @@ export type ErrorCode =
   | 'PAYLOAD_TOO_LARGE'
   | 'UNSUPPORTED_MEDIA_TYPE'
   | 'PROVIDER_ERROR'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -29,6 +30,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
   PROVIDER_ERROR: 502,
+  SERVICE_UNAVAILABLE: 503,
   INTERNAL: 500,
 };
 
@@ -82,6 +84,8 @@ export const Errors = {
     new AppError('UNSUPPORTED_MEDIA_TYPE', message, { details }),
   providerError: (message = 'Image provider failed.', details?: unknown) =>
     new AppError('PROVIDER_ERROR', message, { details, expose: false }),
+  serviceUnavailable: (message = 'Service unavailable.', details?: unknown) =>
+    new AppError('SERVICE_UNAVAILABLE', message, { details }),
   internal: (message = 'Internal error.', cause?: unknown) =>
     new AppError('INTERNAL', message, { expose: false, cause }),
 };
