@@ -33,7 +33,7 @@ export async function enforceRateLimit(uid: string): Promise<void> {
 
   const count = res?.count ?? 1;
   if (count > max) {
-    emitMetric('rate_limited', 1);
+    emitMetric('rate_limited', 1, { distinctId: uid });
     throw Errors.rateLimited(`Rate limit exceeded: ${max} requests per ${windowSeconds}s`, {
       retryAfterSeconds: windowSeconds,
     });

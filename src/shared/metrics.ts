@@ -15,6 +15,7 @@
 
 import { config } from '../config/env';
 import { rootLogger } from './logger';
+import { capture as capturePostHog } from './posthog';
 
 export type MetricUnit = 'Count' | 'Milliseconds' | 'None';
 
@@ -31,6 +32,11 @@ interface EmitOptions {
   unit?: MetricUnit;
   dimensions?: Record<string, string>;
   properties?: Record<string, unknown>;
+  /**
+   * Identified user (uid) the metric belongs to, for PostHog. Backend/system
+   * metrics omit this and are attributed to the configured system distinct id.
+   */
+  distinctId?: string;
 }
 
 const UNIT_BY_METRIC: Record<MetricName, MetricUnit> = {
@@ -49,32 +55,38 @@ const UNIT_BY_METRIC: Record<MetricName, MetricUnit> = {
  * in dimensions.
  */
 export function emitMetric(name: MetricName, value: number, opts: EmitOptions = {}): void {
-  if (!config.metrics.enabled) return;
+  const unit = opts.unit ?? UNIT_BY_METRIC[name];
 
-  const line = {
-    kind: 'metric',
-    namespace: config.metrics.namespace,
-    metric: name,
-    value,
-    unit: opts.unit ?? UNIT_BY_METRIC[name],
-    time: new Date().toISOString(),
-    ...(opts.dimensions ?? {}),
-    ...(opts.properties ?? {}),
-  };
+  if (config.metrics.enabled) {
+    const line = {
+      kind: 'metric',
+      namespace: config.metrics.namespace,
+      metric: name,
+      value,
+      unit,
+      time: new Date().toISOString(),
+      ...(opts.dimensions ?? {}),
+      ...(opts.properties ?? {}),
+    };
 
-  try {
-    process.stdout.write(JSON.stringify(line) + '\n');
-  } catch (err) {
-    rootLogger.warn('Failed to emit metric', { metric: name, error: String(err) });
+    try {
+      process.stdout.write(JSON.stringify(line) + '\n');
+    } catch (err) {
+      rootLogger.warn('Failed to emit metric', { metric: name, error: String(err) });
+    }
   }
-}
 
-/** Times an async operation and emits provider_latency_ms with a provider dimension. */
-export async function timeProvider<T>(provider: string, fn: () => Promise<T>): Promise<T> {
-  const start = Date.now();
-  try {
-    return await fn();
-  } finally {
-    emitMetric('provider_latency_ms', Date.now() - start, { dimensions: { provider } });
-  }
+  // Fan out to PostHog as a product-analytics event (no-op unless enabled).
+  // PostHog has no raw metric ingestion, so each metric is an event; counters
+  // and timers are built as Insights/Trends over `value`.
+  capturePostHog(name, {
+    ...(opts.distinctId ? { distinctId: opts.distinctId } : {}),
+    properties: {
+      value,
+      unit,
+      namespace: config.metrics.namespace,
+      ...(opts.dimensions ?? {}),
+      ...(opts.properties ?? {}),
+    },
+  });
 }

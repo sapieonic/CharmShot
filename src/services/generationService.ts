@@ -59,7 +59,7 @@ export async function createGeneration(
       required: creditsRequired,
     });
   }
-  emitMetric('credits_reserved', creditsRequired);
+  emitMetric('credits_reserved', creditsRequired, { distinctId: uid });
 
   const jobId = newJobId();
   const jobLogger = logger.child({ jobId });
@@ -79,7 +79,7 @@ export async function createGeneration(
     });
   } catch (err) {
     await refundCredits(uid, creditsRequired);
-    emitMetric('credits_refunded', creditsRequired);
+    emitMetric('credits_refunded', creditsRequired, { distinctId: uid });
     throw Errors.internal('Failed to persist generation job', err);
   }
 
@@ -88,14 +88,14 @@ export async function createGeneration(
     await enqueueGenerationJob({ jobId, uid });
   } catch (err) {
     await refundCredits(uid, creditsRequired);
-    emitMetric('credits_refunded', creditsRequired);
+    emitMetric('credits_refunded', creditsRequired, { distinctId: uid });
     // Best-effort fail marking; job stays queryable as FAILED.
     const { markFailed } = await import('../repositories/jobRepository');
     await markFailed(jobId, { code: 'ENQUEUE_FAILED', message: 'Could not enqueue job' }, { creditsRefunded: true });
     throw Errors.internal('Failed to enqueue generation job', err);
   }
 
-  emitMetric('jobs_created', 1, { dimensions: { model: modelId } });
+  emitMetric('jobs_created', 1, { dimensions: { model: modelId }, distinctId: uid });
   await audit({ uid, action: 'generation.created', meta: { jobId, presetId: input.presetId, count: input.count } });
   jobLogger.info('Generation job created', { presetId: input.presetId, count: input.count, modelId });
 

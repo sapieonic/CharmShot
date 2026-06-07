@@ -7,6 +7,7 @@
  */
 
 import { config } from '../config/env';
+import { emitOtelLog } from './telemetry';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -49,12 +50,12 @@ export class Logger {
 
   private write(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
     if (LEVEL_WEIGHT[level] < this.threshold) return;
+    const attributes = { ...this.context, ...(extra ?? {}) };
     const line = {
       level,
       time: new Date().toISOString(),
       message,
-      ...this.context,
-      ...(extra ?? {}),
+      ...attributes,
     };
     const out = JSON.stringify(line);
     if (level === 'error' || level === 'warn') {
@@ -62,6 +63,8 @@ export class Logger {
     } else {
       process.stdout.write(out + '\n');
     }
+    // Also ship to PostHog Logs over OTLP (no-op unless telemetry is started).
+    emitOtelLog(level, message, attributes);
   }
 
   debug(message: string, extra?: Record<string, unknown>): void {

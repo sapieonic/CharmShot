@@ -14,8 +14,14 @@ import { getDb, closeClient } from '../db/mongo';
 import { jobQueue } from '../queue/jobQueue';
 import { recoverUnfinishedJobs, startWorker } from '../worker';
 import { rootLogger } from '../shared/logger';
+import { startTelemetry, shutdownTelemetry } from '../shared/telemetry';
+import { shutdownPostHog } from '../shared/posthog';
 
 async function main(): Promise<void> {
+  // Start OTLP log shipping to PostHog Logs (no-op unless configured) before
+  // anything logs, so boot logs are captured too.
+  startTelemetry();
+
   // Establish the DB connection + indexes up front so the first request is fast
   // and startup fails loudly if Mongo is unreachable.
   await getDb();
@@ -36,16 +42,22 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     rootLogger.info('Shutting down', { signal });
+    let exitCode = 0;
     try {
       await app.close(); // stop accepting new connections
       await jobQueue.onIdle(); // let in-flight jobs finish
       await closeClient();
       rootLogger.info('Shutdown complete');
-      process.exit(0);
     } catch (err) {
       rootLogger.error('Error during shutdown', err);
-      process.exit(1);
+      exitCode = 1;
+    } finally {
+      // Flush analytics/log buffers on BOTH paths so prior logs/events (incl.
+      // any shutdown error logged above) are shipped before we exit.
+      await shutdownPostHog();
+      await shutdownTelemetry();
     }
+    process.exit(exitCode);
   };
 
   process.on('SIGINT', () => void shutdown('SIGINT'));

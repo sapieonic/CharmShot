@@ -39,6 +39,13 @@ export interface ImageProvider {
   readonly id: string;
   /** Human-readable name. */
   readonly name: string;
+  /**
+   * Concrete model identifier the provider actually calls (e.g. "gpt-image-1",
+   * "gemini-3.1-flash-image-preview"). Reported to observability as the model,
+   * distinct from `id` (the provider/route). Defaults to `id` if a provider has
+   * no separate model concept.
+   */
+  readonly model: string;
 
   generateImages(params: GenerateImagesParams): Promise<GeneratedImage[]>;
 }

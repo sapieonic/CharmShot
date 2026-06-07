@@ -31,9 +31,14 @@
     "@aws-sdk/s3-request-presigner": "^3.654.0",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.2.0",
+    "@opentelemetry/api-logs": "^0.218.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-logs": "^0.218.0",
     "fastify": "^4.29.1",
     "firebase-admin": "^12.5.0",
     "mongodb": "^6.9.0",
+    "posthog-node": "^5.36.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {

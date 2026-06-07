@@ -38,6 +38,14 @@ function provider(): NanoBananaProvider {
   return new NanoBananaProvider({ apiKey: 'k', baseUrl: 'https://x', model: 'gemini-3.1-flash-image-preview' });
 }
 
+describe('NanoBananaProvider identity', () => {
+  it('exposes id (route) and model (concrete model) for observability', () => {
+    const p = provider();
+    expect(p.id).toBe('nano-banana');
+    expect(p.model).toBe('gemini-3.1-flash-image-preview');
+  });
+});
+
 describe('NanoBananaProvider.generateImages', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
