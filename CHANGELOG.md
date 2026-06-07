@@ -1,3 +1,9 @@
+## [2.0.1](https://github.com/sapieonic/CharmShot/compare/v2.0.0...v2.0.1) (2026-06-07)
+
+### Bug Fixes
+
+* fixes serverless deployment ([#11](https://github.com/sapieonic/CharmShot/issues/11)) ([9cfd69e](https://github.com/sapieonic/CharmShot/commit/9cfd69e7e3a7726605e1bf274ce639822f25f872))
+
 ## [2.0.0](https://github.com/sapieonic/CharmShot/compare/v1.2.0...v2.0.0) (2026-06-07)
 
 ### ⚠ BREAKING CHANGES
