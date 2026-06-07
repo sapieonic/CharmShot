@@ -99,6 +99,41 @@ describe('Fastify server adapter', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it('answers CORS preflight OPTIONS for an allowed origin without hitting the router', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/v1/presets',
+      headers: {
+        origin: 'http://localhost:5173',
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization',
+      },
+    });
+    // Preflight is short-circuited by @fastify/cors (no route 404).
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+    expect(res.headers['access-control-allow-methods']).toContain('GET');
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('echoes Access-Control-Allow-Origin on actual requests from an allowed origin', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/presets',
+      headers: { origin: 'http://localhost:5173', authorization: 'Bearer t' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+
+  it('does not authorize a disallowed origin', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/presets',
+      headers: { origin: 'https://evil.example.com' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
   it('routes unknown paths through dispatch (consistent 404 envelope)', async () => {
     dispatch.mockResolvedValue({
       statusCode: 404,

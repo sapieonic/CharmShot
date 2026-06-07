@@ -19,7 +19,7 @@
 
 service: charmshot-storage
 
-frameworkVersion: '>=3'
+frameworkVersion: '4'
 
 provider:
   name: aws
