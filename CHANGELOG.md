@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/sapieonic/CharmShot/compare/v1.1.0...v1.2.0) (2026-06-07)
+
+### Features
+
+* **observability:** integrate PostHog for analytics, AI traces, and logs ([#9](https://github.com/sapieonic/CharmShot/issues/9)) ([79a1231](https://github.com/sapieonic/CharmShot/commit/79a1231d93590e33db50bcdd49a26556b7c707fd))
+
 ## [1.1.0](https://github.com/sapieonic/CharmShot/compare/v1.0.0...v1.1.0) (2026-06-06)
 
 ### Features
