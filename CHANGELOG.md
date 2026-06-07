@@ -1,3 +1,19 @@
+## [2.0.0](https://github.com/sapieonic/CharmShot/compare/v1.2.0...v2.0.0) (2026-06-07)
+
+### ⚠ BREAKING CHANGES
+
+* POST /v1/webhooks/revenuecat is removed along with the
+REVENUECAT_WEBHOOK_AUTH env var. Billing webhooks now arrive at
+POST /v1/webhooks/razorpay (X-Razorpay-Signature auth) and only when
+PAYMENTS_ENABLED=true.
+
+Co-authored-by: Manas Nilorout <manasnilarout@gmail.com>
+Co-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+### Features
+
+* replace RevenueCat billing with Razorpay shell gated by PAYMENTS_ENABLED ([#10](https://github.com/sapieonic/CharmShot/issues/10)) ([2f354f2](https://github.com/sapieonic/CharmShot/commit/2f354f2f39708a5eb954c58176a66fb88e9b60f8))
+
 ## [1.2.0](https://github.com/sapieonic/CharmShot/compare/v1.1.0...v1.2.0) (2026-06-07)
 
 ### Features
